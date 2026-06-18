@@ -1,0 +1,145 @@
+{
+  "name": "BusinessSettings",
+  "type": "object",
+  "properties": {
+    "business_name": {
+      "type": "string",
+      "description": "Name of the business"
+    },
+    "logo_url": {
+      "type": "string",
+      "description": "URL of the business logo"
+    },
+    "background_image_url": {
+      "type": "string",
+      "description": "URL of the background image for app hero"
+    },
+    "overlay_color": {
+      "type": "string",
+      "description": "Hex color code for background overlay"
+    },
+    "overlay_opacity": {
+      "type": "number",
+      "description": "Opacity of background overlay (0-1)",
+      "default": 0.5
+    },
+    "tagline": {
+      "type": "string",
+      "description": "Business tagline or slogan"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Business phone number"
+    },
+    "email": {
+      "type": "string",
+      "description": "Business email address"
+    },
+    "website": {
+      "type": "string",
+      "description": "Business website URL"
+    },
+    "facebook_url": {
+      "type": "string",
+      "description": "Facebook page URL"
+    },
+    "instagram_url": {
+      "type": "string",
+      "description": "Instagram page URL"
+    },
+    "address": {
+      "type": "string",
+      "description": "Business address"
+    },
+    "latitude": {
+      "type": "number",
+      "description": "Location latitude"
+    },
+    "longitude": {
+      "type": "number",
+      "description": "Location longitude"
+    },
+    "current_location": {
+      "type": "string",
+      "description": "Current food truck location description"
+    },
+    "business_hours": {
+      "type": "array",
+      "description": "Business hours per day",
+      "items": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "open": {
+            "type": "string"
+          },
+          "close": {
+            "type": "string"
+          },
+          "closed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "privacy_policy_url": {
+      "type": "string",
+      "description": "Privacy policy URL"
+    },
+    "terms_of_service_url": {
+      "type": "string",
+      "description": "Terms of service URL"
+    },
+    "account_deletion_url": {
+      "type": "string",
+      "description": "Account deletion URL"
+    },
+    "points_per_dollar": {
+      "type": "number",
+      "description": "Points earned per dollar spent",
+      "default": 1
+    },
+    "primary_color": {
+      "type": "string",
+      "description": "Primary brand color hex"
+    }
+  },
+  "required": [
+    "business_name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    }
+  }
+}

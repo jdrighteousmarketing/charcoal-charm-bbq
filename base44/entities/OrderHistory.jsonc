@@ -1,0 +1,108 @@
+{
+  "name": "OrderHistory",
+  "type": "object",
+  "properties": {
+    "customer_profile_id": {
+      "type": "string",
+      "description": "Reference to CustomerProfile"
+    },
+    "items": {
+      "type": "array",
+      "description": "Ordered items",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "price": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "total": {
+      "type": "number",
+      "description": "Order total"
+    },
+    "points_earned": {
+      "type": "number",
+      "description": "Points earned from this order"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed",
+        "completed",
+        "cancelled"
+      ],
+      "default": "completed"
+    }
+  },
+  "required": [
+    "customer_profile_id",
+    "total"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "owner_admin",
+                "admin",
+                "employee"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "owner_admin",
+                "admin",
+                "employee"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    }
+  }
+}

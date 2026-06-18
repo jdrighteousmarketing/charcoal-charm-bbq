@@ -1,0 +1,97 @@
+{
+  "name": "Promotion",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Promotion title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Promotion description"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Promotion image URL"
+    },
+    "promo_code": {
+      "type": "string",
+      "description": "Optional promo/coupon code"
+    },
+    "discount_type": {
+      "type": "string",
+      "enum": [
+        "percentage",
+        "fixed",
+        "bogo",
+        "free_item"
+      ],
+      "description": "Type of discount"
+    },
+    "discount_value": {
+      "type": "number",
+      "description": "Discount amount or percentage"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Promotion start date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Promotion end date"
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Whether promotion is currently active",
+      "default": true
+    },
+    "promotion_type": {
+      "type": "string",
+      "enum": [
+        "promotion",
+        "coupon",
+        "limited_time"
+      ],
+      "default": "promotion",
+      "description": "Type of promotion"
+    }
+  },
+  "required": [
+    "title"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    }
+  }
+}

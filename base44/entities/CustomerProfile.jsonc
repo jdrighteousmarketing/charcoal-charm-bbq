@@ -1,0 +1,120 @@
+{
+  "name": "CustomerProfile",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "description": "Reference to User entity"
+    },
+    "name": {
+      "type": "string",
+      "description": "Customer full name"
+    },
+    "email": {
+      "type": "string",
+      "description": "Customer email"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Customer phone number"
+    },
+    "birthday": {
+      "type": "string",
+      "format": "date",
+      "description": "Customer birthday"
+    },
+    "address": {
+      "type": "string",
+      "description": "Customer address"
+    },
+    "points_balance": {
+      "type": "number",
+      "description": "Current reward points balance",
+      "default": 0
+    },
+    "total_points_earned": {
+      "type": "number",
+      "description": "Lifetime points earned",
+      "default": 0
+    },
+    "customer_id_code": {
+      "type": "string",
+      "description": "Unique code for QR/reward redemption"
+    }
+  },
+  "required": [
+    "user_id"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "data.user_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "owner_admin",
+                "admin"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "data.user_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "employee",
+                "owner_admin",
+                "admin"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "data.user_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "employee",
+                "owner_admin",
+                "admin"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "data.user_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "owner_admin",
+                "admin"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

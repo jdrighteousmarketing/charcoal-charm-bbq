@@ -1,0 +1,130 @@
+{
+  "name": "Cart",
+  "type": "object",
+  "properties": {
+    "customer_profile_id": {
+      "type": "string",
+      "description": "Reference to CustomerProfile"
+    },
+    "items": {
+      "type": "array",
+      "description": "Cart items",
+      "items": {
+        "type": "object",
+        "properties": {
+          "menu_item_id": {
+            "type": "string",
+            "description": "Reference to MenuItem"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number"
+          },
+          "quantity": {
+            "type": "number",
+            "default": 1
+          }
+        }
+      }
+    },
+    "subtotal": {
+      "type": "number",
+      "description": "Subtotal before tax",
+      "default": 0
+    },
+    "tax_rate": {
+      "type": "number",
+      "description": "Tax rate percentage",
+      "default": 0
+    },
+    "tax_amount": {
+      "type": "number",
+      "description": "Tax amount",
+      "default": 0
+    },
+    "total": {
+      "type": "number",
+      "description": "Total including tax",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "completed",
+        "cancelled"
+      ],
+      "default": "active",
+      "description": "Cart status"
+    },
+    "points_to_earn": {
+      "type": "number",
+      "description": "Points to be earned from this purchase",
+      "default": 0
+    }
+  },
+  "required": [
+    "customer_profile_id"
+  ],
+  "rls": {
+    "create": {
+      "created_by_id": "{{user.id}}"
+    },
+    "read": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "employee",
+                "owner_admin",
+                "admin"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "employee",
+                "owner_admin",
+                "admin"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "employee",
+                "owner_admin",
+                "admin"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

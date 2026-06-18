@@ -1,0 +1,83 @@
+{
+  "name": "MenuItem",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Item name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Item description"
+    },
+    "price": {
+      "type": "number",
+      "description": "Item price"
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Item image URL"
+    },
+    "category_id": {
+      "type": "string",
+      "description": "ID of the menu category"
+    },
+    "is_available": {
+      "type": "boolean",
+      "description": "Whether item is currently available",
+      "default": true
+    },
+    "is_sold_out": {
+      "type": "boolean",
+      "description": "Whether item is sold out",
+      "default": false
+    },
+    "is_featured": {
+      "type": "boolean",
+      "description": "Whether item is a featured special",
+      "default": false
+    },
+    "sort_order": {
+      "type": "number",
+      "description": "Display order within category",
+      "default": 0
+    }
+  },
+  "required": [
+    "name",
+    "price"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "name": "MenuCategory",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Category name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Category description"
+    },
+    "sort_order": {
+      "type": "number",
+      "description": "Display order",
+      "default": 0
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Category image URL"
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Whether category is visible",
+      "default": true
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "read": null,
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "name": "PointTransaction",
+  "type": "object",
+  "properties": {
+    "customer_profile_id": {
+      "type": "string",
+      "description": "Reference to CustomerProfile"
+    },
+    "points": {
+      "type": "number",
+      "description": "Points added or subtracted"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "earned",
+        "redeemed",
+        "adjustment",
+        "birthday_bonus"
+      ],
+      "description": "Transaction type"
+    },
+    "description": {
+      "type": "string",
+      "description": "Transaction description"
+    },
+    "reward_id": {
+      "type": "string",
+      "description": "Reference to Reward if redeemed"
+    }
+  },
+  "required": [
+    "customer_profile_id",
+    "points",
+    "type"
+  ],
+  "rls": {
+    "create": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "employee",
+                "owner_admin",
+                "admin"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "read": {
+      "$or": [
+        {
+          "created_by_id": "{{user.id}}"
+        },
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "employee",
+                "owner_admin",
+                "admin"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    }
+  }
+}

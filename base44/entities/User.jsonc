@@ -1,0 +1,17 @@
+{
+  "name": "User",
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "customer",
+        "employee",
+        "owner_admin",
+        "admin"
+      ],
+      "default": "customer",
+      "description": "User role. customer = regular app user, employee = staff with admin tools, owner_admin/admin = full business owner access"
+    }
+  }
+}

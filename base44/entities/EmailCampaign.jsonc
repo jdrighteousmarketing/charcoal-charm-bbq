@@ -1,0 +1,74 @@
+{
+  "name": "EmailCampaign",
+  "type": "object",
+  "properties": {
+    "email_type": {
+      "type": "string",
+      "enum": [
+        "birthday_rewards",
+        "promotions"
+      ],
+      "description": "Type of email campaign"
+    },
+    "description": {
+      "type": "string",
+      "description": "Campaign description"
+    },
+    "sent_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date email was sent"
+    },
+    "recipient_count": {
+      "type": "number",
+      "description": "Number of recipients",
+      "default": 0
+    }
+  },
+  "required": [
+    "email_type",
+    "sent_date"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "owner_admin",
+            "admin"
+          ]
+        }
+      }
+    }
+  }
+}
