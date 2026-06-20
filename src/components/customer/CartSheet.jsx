@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ShoppingCart, Plus, Minus, Trash2, QrCode } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, QrCode, Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useCart } from '@/hooks/useCart';
@@ -14,6 +14,10 @@ import {
 } from '@/components/ui/sheet';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabaseClient';
+
+const RESTAURANT_ID = 'pit_stop_mobile';
 
 function cleanQrText(value) {
   return encodeURIComponent(String(value || '').replace(/[|~,]/g, ' ').trim());
@@ -26,6 +30,44 @@ export default function CartSheet() {
   );
 
   const [isOpen, setIsOpen] = useState(false);
+
+  const customerId = customerProfile?.id;
+
+  const { data: claimedCoupon } = useQuery({
+    queryKey: ['claimedCouponForCart', RESTAURANT_ID, customerId],
+    enabled: !!customerId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('promotion_redemptions')
+        .select(`
+          id,
+          status,
+          promotion_id,
+          promotions (
+            id,
+            title,
+            promo_code,
+            discount_type,
+            discount_value,
+            description
+          )
+        `)
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_id', customerId)
+        .eq('status', 'claimed')
+        .is('used_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Could not load claimed coupon:', error);
+        return null;
+      }
+
+      return data || null;
+    },
+  });
 
   const businessSettings = useMemo(() => {
     const saved =
@@ -83,8 +125,19 @@ export default function CartSheet() {
     })
     .join(',');
 
+  const couponText = claimedCoupon?.promotions
+    ? [
+        claimedCoupon.id,
+        claimedCoupon.promotion_id,
+        cleanQrText(claimedCoupon.promotions.title),
+        cleanQrText(claimedCoupon.promotions.promo_code),
+        cleanQrText(claimedCoupon.promotions.discount_type),
+        claimedCoupon.promotions.discount_value ?? '',
+      ].join('~')
+    : '';
+
   // Short QR format:
-  // PS|customerCode|customerName|subtotal|tax|total|points|itemName~qty~price,itemName~qty~price
+  // PS|customerCode|customerName|subtotal|tax|total|points|items|coupon
   const qrValue = [
     'PS',
     cleanQrText(customerCode),
@@ -94,6 +147,7 @@ export default function CartSheet() {
     total.toFixed(2),
     pointsToEarn,
     itemText,
+    couponText,
   ].join('|');
 
   const handleClearCart = () => {
@@ -202,6 +256,23 @@ export default function CartSheet() {
 
         {cartItems.length > 0 && (
           <div className="mt-6 space-y-4 border-t border-border pt-4">
+            {claimedCoupon?.promotions && (
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+                <div className="flex items-center gap-2 font-semibold text-sm">
+                  <Ticket className="w-4 h-4 text-primary" />
+                  Claimed Coupon Attached
+                </div>
+                <p className="text-sm mt-1 font-medium">
+                  {claimedCoupon.promotions.title}
+                </p>
+                {claimedCoupon.promotions.promo_code && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Code: {claimedCoupon.promotions.promo_code}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Subtotal</span>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ShoppingCart, CheckCircle } from 'lucide-react';
+import { ShoppingCart, CheckCircle, Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -35,6 +35,7 @@ export default function CheckoutReview() {
   }, [location.state]);
 
   const items = checkoutData.items || [];
+  const claimedCoupon = checkoutData.claimedCoupon || null;
 
   const handleCompleteAward = async () => {
     setAwarding(true);
@@ -129,22 +130,53 @@ export default function CheckoutReview() {
         }
       }
 
-      const { error: pointsError } = await supabase
-        .from('points_transactions')
-        .insert([
-          {
-            restaurant_id: RESTAURANT_ID,
-            customer_code: customerCode,
-            order_number: orderNumber,
-            transaction_type: 'earned',
-            points_amount: pointsToAdd,
-            note: `Earned from order total $${money(checkoutData.total)}`,
-            employee_name: 'Employee',
-          },
-        ]);
+      const employeeUser = JSON.parse(
+  localStorage.getItem('pitstop_employee_user') || '{}'
+);
+
+const adminUser = JSON.parse(
+  localStorage.getItem('pitstop_demo_user') || '{}'
+);
+
+const staffUser = employeeUser?.loggedIn ? employeeUser : adminUser;
+
+const { error: pointsError } = await supabase
+  .from('points_transactions')
+  .insert([
+    {
+      restaurant_id: RESTAURANT_ID,
+      customer_code: customerCode,
+      order_number: orderNumber,
+      transaction_type: 'earned',
+      points_amount: pointsToAdd,
+      note: `Earned from order total $${money(checkoutData.total)}`,
+      employee_name: staffUser?.name || staffUser?.email || 'Employee',
+      awarded_by_employee_id: staffUser?.id || null,
+      awarded_by_employee_auth_id: staffUser?.auth_user_id || null,
+      awarded_by_employee_name: staffUser?.name || 'Employee',
+      awarded_by_employee_email: staffUser?.email || null,
+    },
+  ]);
 
       if (pointsError) {
         throw pointsError;
+      }
+
+      if (claimedCoupon?.redemptionId) {
+        const { error: couponError } = await supabase
+          .from('promotion_redemptions')
+          .update({
+            status: 'used',
+            used_at: new Date().toISOString(),
+          })
+          .eq('id', claimedCoupon.redemptionId)
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('customer_id', customer.id)
+          .eq('status', 'claimed');
+
+        if (couponError) {
+          throw couponError;
+        }
       }
 
       const savedUser = safeJsonParse(
@@ -173,7 +205,7 @@ export default function CheckoutReview() {
       navigate('/admin/scanner', { replace: true });
     } catch (error) {
       console.error(error);
-      toast.error('Failed to award points.');
+      toast.error('Failed to complete checkout.');
     } finally {
       setAwarding(false);
     }
@@ -218,6 +250,27 @@ export default function CheckoutReview() {
           ))}
         </div>
 
+        {claimedCoupon && (
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-1">
+            <div className="flex items-center gap-2 font-semibold text-sm">
+              <Ticket className="w-4 h-4 text-primary" />
+              Claimed Coupon
+            </div>
+
+            <p className="font-medium text-sm">{claimedCoupon.title}</p>
+
+            {claimedCoupon.promoCode && (
+              <p className="text-xs text-muted-foreground">
+                Code: {claimedCoupon.promoCode}
+              </p>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              This coupon will be marked used when checkout is completed.
+            </p>
+          </div>
+        )}
+
         <div className="border-t border-border pt-3 space-y-1">
           <div className="flex justify-between">
             <span>Subtotal</span>
@@ -247,7 +300,7 @@ export default function CheckoutReview() {
           disabled={awarding}
         >
           <CheckCircle className="w-4 h-4" />
-          {awarding ? 'Awarding Points...' : 'Complete & Award Points'}
+          {awarding ? 'Completing...' : 'Complete Checkout'}
         </button>
       </div>
     </div>

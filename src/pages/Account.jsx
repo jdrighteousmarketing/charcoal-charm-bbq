@@ -28,7 +28,20 @@ export default function Account() {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
 
-  const savedUser = JSON.parse(localStorage.getItem('pitstop_demo_user') || '{}');
+  const customerUser = JSON.parse(
+  localStorage.getItem('pitstop_demo_user') || '{}'
+);
+
+const employeeUser = JSON.parse(
+  localStorage.getItem('pitstop_employee_user') || '{}'
+);
+
+const savedUser =
+  employeeUser?.loggedIn === true
+    ? employeeUser
+    : customerUser;
+
+const isEmployee = savedUser?.role === 'employee';
 
   const [profile, setProfile] = useState({
     name: savedUser.name || savedUser.email?.split('@')[0] || 'Customer',
@@ -47,18 +60,66 @@ export default function Account() {
   const orders = [];
 
   const handleDeleteAccount = async () => {
-    if (
-      !confirm(
-        'Are you sure you want to delete your account? This action cannot be undone.'
-      )
-    ) {
-      return;
+  if (
+    !confirm(
+      'Are you sure you want to delete your account? This action cannot be undone.'
+    )
+  ) {
+    return;
+  }
+
+  try {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user?.id) {
+      throw new Error('Could not find logged-in auth user.');
     }
 
+    const customerCode =
+      profile.customer_id_code || profile.customer_code;
+
+    const { error: customerDeleteError } = await supabase
+      .from('customers')
+      .delete()
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('customer_code', customerCode);
+
+    if (customerDeleteError) {
+      throw customerDeleteError;
+    }
+
+    const response = await fetch('/.netlify/functions/delete-account', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        userId: user.id,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Could not delete auth user.');
+    }
+
+    await supabase.auth.signOut();
+
     localStorage.removeItem('pitstop_demo_user');
-    toast.success('Account deleted successfully');
-    navigate('/register');
-  };
+    localStorage.removeItem('pitStopScannedCheckout');
+
+    toast.success('Account permanently deleted.');
+
+    navigate('/register', { replace: true });
+  } catch (error) {
+    console.error(error);
+    toast.error('Failed to delete account.');
+  }
+};
 
   const startEditing = () => {
     setForm({
@@ -100,21 +161,21 @@ export default function Account() {
       setProfile(updatedProfile);
 
       localStorage.setItem(
-        'pitstop_demo_user',
-        JSON.stringify({
-          ...savedUser,
-          name: updatedProfile.name,
-          email: updatedProfile.email,
-          phone: updatedProfile.phone,
-          birthday: updatedProfile.birthday,
-          address: updatedProfile.address,
-          customer_id_code: updatedProfile.customer_id_code,
-          customer_code: updatedProfile.customer_id_code,
-          points_balance: updatedProfile.points_balance,
-          role: savedUser.role || 'user',
-          loggedIn: true,
-        })
-      );
+  isEmployee ? 'pitstop_employee_user' : 'pitstop_demo_user',
+  JSON.stringify({
+    ...savedUser,
+    name: updatedProfile.name,
+    email: updatedProfile.email,
+    phone: updatedProfile.phone,
+    birthday: updatedProfile.birthday,
+    address: updatedProfile.address,
+    customer_id_code: updatedProfile.customer_id_code,
+    customer_code: updatedProfile.customer_id_code,
+    points_balance: updatedProfile.points_balance,
+    role: savedUser.role || 'user',
+    loggedIn: true,
+  })
+);
 
       setEditing(false);
       toast.success('Profile updated!');
@@ -127,9 +188,15 @@ export default function Account() {
   };
 
   const handleSignOut = () => {
-    localStorage.removeItem('pitstop_demo_user');
+  localStorage.removeItem('pitstop_demo_user');
+  localStorage.removeItem('pitstop_employee_user');
+
+  if (isEmployee) {
+    navigate('/employee-login');
+  } else {
     navigate('/register');
-  };
+  }
+};
 
   return (
     <div className="pb-4">
@@ -248,23 +315,30 @@ export default function Account() {
         )}
       </motion.div>
 
-      <CustomerQRCode customerIdCode={profile?.customer_id_code} />
+      {!isEmployee && (
+  <CustomerQRCode customerIdCode={profile?.customer_id_code} />
+)}
 
-      <div className="grid grid-cols-2 gap-3 px-5 mt-4">
-        <div className="bg-card rounded-2xl border border-border p-4 text-center">
-          <Gift className="w-5 h-5 text-primary mx-auto mb-1" />
-          <p className="text-2xl font-display font-bold">
-            {profile?.points_balance || 0}
-          </p>
-          <p className="text-xs text-muted-foreground">Points</p>
-        </div>
+      {!isEmployee && (
+  <div className="grid grid-cols-2 gap-3 px-5 mt-4">
+    <div className="bg-card rounded-2xl border border-border p-4 text-center">
+      <Gift className="w-5 h-5 text-primary mx-auto mb-1" />
+      <p className="text-2xl font-display font-bold">
+        {profile?.points_balance || 0}
+      </p>
+      <p className="text-xs text-muted-foreground">Points</p>
+    </div>
 
-        <div className="bg-card rounded-2xl border border-border p-4 text-center">
-          <Clock className="w-5 h-5 text-primary mx-auto mb-1" />
-          <p className="text-2xl font-display font-bold">{orders.length}</p>
-          <p className="text-xs text-muted-foreground">Orders</p>
-        </div>
-      </div>
+    <div className="bg-card rounded-2xl border border-border p-4 text-center">
+      <Clock className="w-5 h-5 text-primary mx-auto mb-1" />
+      <p className="text-2xl font-display font-bold">
+        {orders.length}
+      </p>
+      <p className="text-xs text-muted-foreground">Orders</p>
+    </div>
+  </div>
+)}
+
 
       <div className="px-5 mt-6 space-y-2">
         <LinkRow label="Privacy Policy" href="#" />

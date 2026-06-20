@@ -1,4 +1,4 @@
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/lib/supabaseClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { UserPlus, Mail, Search, Shield, ChevronUp } from 'lucide-react';
@@ -21,16 +21,27 @@ export default function EmployeeManagement() {
   const queryClient = useQueryClient();
 
   const { data: users = [], isLoading } = useQuery({
-    queryKey: ['allUsers'],
-    queryFn: async () => {
-      const response = await base44.functions.invoke('getAllUsers', {});
-      return response.data?.users || [];
-    },
-    initialData: [],
-  });
+  queryKey: ['allUsers'],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('employees')
+      .select('*')
+      .eq('restaurant_id', 'pit_stop_mobile')
+      .order('full_name', { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return data || [];
+  },
+  initialData: [],
+});
 
   // Show only owner/admin and employee roles (not regular customers)
-  const employees = users.filter(u => ['owner_admin', 'admin', 'employee'].includes(u.role));
+ const employees = users.filter((u) =>
+  ['owner_admin', 'admin', 'employee'].includes(u.role)
+);
 
   const filteredEmployees = employees.filter(e => {
     if (!search) return true;
@@ -40,41 +51,71 @@ export default function EmployeeManagement() {
   });
 
   const inviteMutation = useMutation({
-    mutationFn: async ({ email, name, role }) => {
-      console.log('Starting invite mutation for:', email, 'role:', role);
-      const result = await base44.functions.invoke('inviteEmployee', { email, name, role });
-      console.log('Mutation result:', result.data);
-      return result.data;
-    },
-    onSuccess: (data) => {
-      console.log('onSuccess called with:', data);
-      setInviteSent(true);
-      if (data?.user_created || data?.email_sent) {
-        toast.success('Employee invite sent!');
-      }
-      // Invalidate immediately, then close dialog after 2s
-      queryClient.invalidateQueries({ queryKey: ['allUsers'] });
-      setTimeout(() => {
-        setInviteSent(false);
-        setInviteDialogOpen(false);
-        setInviteEmail('');
-        setInviteName('');
-        queryClient.invalidateQueries({ queryKey: ['allUsers'] });
-      }, 2000);
-    },
-    onError: (error) => {
-      console.error('onError called with:', error);
-      toast.error(error.message || 'Failed to invite employee');
-    },
-  });
+  mutationFn: async ({ email, name }) => {
+    const response = await fetch('/.netlify/functions/invite-employee', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        fullName: name,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to invite employee');
+    }
+
+    return result;
+  },
+
+  onSuccess: () => {
+    setInviteSent(true);
+
+    toast.success('Employee invite sent!');
+
+    queryClient.invalidateQueries({
+      queryKey: ['allUsers'],
+    });
+
+    setTimeout(() => {
+      setInviteSent(false);
+      setInviteDialogOpen(false);
+      setInviteEmail('');
+      setInviteName('');
+
+      queryClient.invalidateQueries({
+        queryKey: ['allUsers'],
+      });
+    }, 2000);
+  },
+
+  onError: (error) => {
+    console.error(error);
+    toast.error(error.message || 'Failed to invite employee');
+  },
+});
 
   const changeRoleMutation = useMutation({
-    mutationFn: async ({ user_id, new_role }) => {
-      const result = await base44.functions.invoke('updateUserRoleAdmin', { user_id, new_role });
-      return result.data;
-    },
-    onSuccess: (_, { new_role }) => {
-      toast.success(`Role updated to ${new_role}`);
+  mutationFn: async ({ user_id, new_role }) => {
+    const { error } = await supabase
+      .from('employees')
+      .update({
+        role: new_role,
+      })
+      .eq('id', user_id);
+
+    if (error) {
+      throw error;
+    }
+
+    return { new_role };
+  },
+    onSuccess: (data) => {
+      toast.success(`Role updated to ${data.new_role}`);
       setChangingRoleFor(null);
       queryClient.invalidateQueries({ queryKey: ['allUsers'] });
     },
@@ -83,16 +124,48 @@ export default function EmployeeManagement() {
     },
   });
 
-  const handleInvite = (e) => {
-    console.log('handleInvite called');
-    e.preventDefault();
-    if (!inviteEmail) {
-      toast.error('Please enter an email address');
-      return;
+  const handleInvite = async (e) => {
+  e.preventDefault();
+
+  if (!inviteEmail) {
+    toast.error('Please enter an email address');
+    return;
+  }
+
+  try {
+    const response = await fetch('/.netlify/functions/invite-employee', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: inviteEmail,
+        fullName: inviteName,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to invite employee');
     }
-    console.log('About to call mutation with:', { email: inviteEmail, name: inviteName, role: inviteRole });
-    inviteMutation.mutate({ email: inviteEmail, name: inviteName, role: inviteRole });
-  };
+
+    toast.success('Employee invite sent!');
+    setInviteSent(true);
+    queryClient.invalidateQueries({ queryKey: ['allUsers'] });
+
+    setTimeout(() => {
+      setInviteSent(false);
+      setInviteDialogOpen(false);
+      setInviteEmail('');
+      setInviteName('');
+      queryClient.invalidateQueries({ queryKey: ['allUsers'] });
+    }, 2000);
+  } catch (error) {
+    console.error(error);
+    toast.error(error.message || 'Failed to invite employee');
+  }
+};
 
   return (
     <div>

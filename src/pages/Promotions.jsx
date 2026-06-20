@@ -1,7 +1,14 @@
+import { useMemo, useState } from 'react';
 import { Tag, Clock, Ticket, Percent } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { format } from 'date-fns';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabaseClient';
+import { useCustomerProfile } from '@/hooks/useCustomerProfile';
+
+const RESTAURANT_ID = 'pit_stop_mobile';
 
 const typeConfig = {
   promotion: { icon: Tag, label: 'Promotion', color: 'bg-primary/10 text-primary' },
@@ -9,69 +16,109 @@ const typeConfig = {
   limited_time: { icon: Clock, label: 'Limited Time', color: 'bg-amber-500/10 text-amber-600' },
 };
 
+function getDiscountLabel(promo) {
+  if (promo.discount_type === 'percentage') return `${promo.discount_value}% Off`;
+  if (promo.discount_type === 'fixed') return `$${promo.discount_value} Off`;
+  if (promo.discount_type === 'bogo') return 'BOGO';
+  if (promo.discount_type === 'points') return '2X Points';
+  return 'Free Item';
+}
+
 export default function Promotions() {
-  const promotions = [
-    {
-      id: 'promo-1',
-      title: 'Free Fries with Any Burger',
-      description: 'Order any burger and get a free side of seasoned fries.',
-      promotion_type: 'coupon',
-      discount_type: 'free_item',
-      discount_value: null,
-      promo_code: 'FREEFRIES',
-      start_date: new Date().toISOString(),
-      end_date: '2026-12-31',
-      is_active: true,
-      image_url: '',
-    },
-    {
-      id: 'promo-2',
-      title: '$5 Off Orders Over $25',
-      description: 'Save $5 when your order total is $25 or more.',
-      promotion_type: 'promotion',
-      discount_type: 'fixed',
-      discount_value: 5,
-      promo_code: 'PIT5',
-      start_date: new Date().toISOString(),
-      end_date: '2026-12-31',
-      is_active: true,
-      image_url: '',
-    },
-    {
-      id: 'promo-3',
-      title: 'Double Points Tuesday',
-      description: 'Earn double reward points every Tuesday.',
-      promotion_type: 'limited_time',
-      discount_type: 'points',
-      discount_value: null,
-      promo_code: '2XPOINTS',
-      start_date: new Date().toISOString(),
-      end_date: '2026-12-31',
-      is_active: true,
-      image_url: '',
-    },
-    {
-      id: 'promo-4',
-      title: 'Free Drink with Combo Meal',
-      description: 'Get a free fountain drink when you order any combo meal.',
-      promotion_type: 'coupon',
-      discount_type: 'free_item',
-      discount_value: null,
-      promo_code: 'FREEDRINK',
-      start_date: new Date().toISOString(),
-      end_date: '2026-12-31',
-      is_active: true,
-      image_url: '',
-    },
-  ];
+  const queryClient = useQueryClient();
+  const [redeemingId, setRedeemingId] = useState(null);
 
-  const now = new Date();
+  const { data: customerProfile } = useCustomerProfile();
 
-  const activePromos = promotions.filter((p) => {
-    if (p.end_date && new Date(p.end_date) < now) return false;
-    if (p.start_date && new Date(p.start_date) > now) return false;
-    return true;
+  const customerId = customerProfile?.id;
+
+  const { data: promotions = [], isLoading: promotionsLoading } = useQuery({
+    queryKey: ['promotions', RESTAURANT_ID],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('promotions')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Could not load promotions:', error);
+        throw error;
+      }
+
+      return data || [];
+    },
   });
+
+  const { data: redemptions = [], isLoading: redemptionsLoading } = useQuery({
+    queryKey: ['promotionRedemptions', RESTAURANT_ID, customerId],
+    enabled: !!customerId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('promotion_redemptions')
+        .select('promotion_id')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_id', customerId);
+
+      if (error) {
+        console.error('Could not load promotion redemptions:', error);
+        throw error;
+      }
+
+      return data || [];
+    },
+  });
+
+  const redeemedPromotionIds = useMemo(() => {
+    return new Set(redemptions.map((r) => r.promotion_id));
+  }, [redemptions]);
+
+  const activePromos = useMemo(() => {
+    const now = new Date();
+
+    return promotions.filter((promo) => {
+      if (redeemedPromotionIds.has(promo.id)) return false;
+      if (promo.end_date && new Date(promo.end_date) < now) return false;
+      if (promo.start_date && new Date(promo.start_date) > now) return false;
+      return true;
+    });
+  }, [promotions, redeemedPromotionIds]);
+
+  const redeemMutation = useMutation({
+    mutationFn: async (promo) => {
+      if (!customerId) {
+        throw new Error('Customer profile not loaded.');
+      }
+
+      const { error } = await supabase.from('promotion_redemptions').insert({
+        promotion_id: promo.id,
+        customer_id: customerId,
+        restaurant_id: RESTAURANT_ID,
+      });
+
+      if (error) throw error;
+
+      return promo.id;
+    },
+    onMutate: (promo) => {
+      setRedeemingId(promo.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['promotionRedemptions', RESTAURANT_ID, customerId],
+      });
+    },
+    onError: (error) => {
+      console.error('Could not redeem promotion:', error);
+      alert('This coupon could not be redeemed. Please try again.');
+    },
+    onSettled: () => {
+      setRedeemingId(null);
+    },
+  });
+
+  const isLoading = promotionsLoading || redemptionsLoading;
 
   return (
     <div className="pb-4">
@@ -83,7 +130,11 @@ export default function Promotions() {
       </div>
 
       <div className="px-5 mt-4 space-y-4">
-        {activePromos.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-16 text-muted-foreground">
+            Loading promotions...
+          </div>
+        ) : activePromos.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -123,19 +174,13 @@ export default function Promotions() {
 
                     <div className="flex items-center gap-1 text-primary font-bold text-sm">
                       <Percent className="w-3.5 h-3.5" />
-                      {promo.discount_type === 'percentage'
-                        ? `${promo.discount_value}% Off`
-                        : promo.discount_type === 'fixed'
-                        ? `$${promo.discount_value} Off`
-                        : promo.discount_type === 'bogo'
-                        ? 'BOGO'
-                        : promo.discount_type === 'points'
-                        ? '2X Points'
-                        : 'Free Item'}
+                      {getDiscountLabel(promo)}
                     </div>
                   </div>
 
-                  <h3 className="font-display font-bold text-base">{promo.title}</h3>
+                  <h3 className="font-display font-bold text-base">
+                    {promo.title}
+                  </h3>
 
                   {promo.description && (
                     <p className="text-sm text-muted-foreground mt-1">
@@ -143,16 +188,15 @@ export default function Promotions() {
                     </p>
                   )}
 
-                  {promo.promo_code && (
-                    <div className="mt-3 bg-muted/50 rounded-xl p-3 text-center">
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                        Promo Code
-                      </p>
-                      <p className="font-mono font-bold text-lg tracking-widest text-primary mt-0.5">
-                        {promo.promo_code}
-                      </p>
-                    </div>
-                  )}
+            
+
+                  <Button
+                    className="w-full mt-4"
+                    disabled={!customerId || redeemingId === promo.id}
+                    onClick={() => redeemMutation.mutate(promo)}
+                  >
+                    {redeemingId === promo.id ? 'Redeeming...' : 'Redeem Coupon'}
+                  </Button>
 
                   {promo.end_date && (
                     <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">

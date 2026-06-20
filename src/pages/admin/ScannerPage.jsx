@@ -4,6 +4,30 @@ import QRScanner from '@/components/admin/QRScanner';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
+function parseCouponText(couponText) {
+  if (!couponText) return null;
+
+  const [
+    redemptionId,
+    promotionId,
+    title,
+    promoCode,
+    discountType,
+    discountValue,
+  ] = couponText.split('~');
+
+  if (!redemptionId || !promotionId) return null;
+
+  return {
+    redemptionId: Number(redemptionId),
+    promotionId: Number(promotionId),
+    title: decodeURIComponent(title || 'Claimed Coupon'),
+    promoCode: decodeURIComponent(promoCode || ''),
+    discountType: decodeURIComponent(discountType || ''),
+    discountValue: discountValue ? Number(discountValue) : null,
+  };
+}
+
 function parseShortPitStopQR(code) {
   const raw = code?.toString().trim();
 
@@ -27,6 +51,7 @@ function parseShortPitStopQR(code) {
       total,
       pointsToEarn,
       itemText,
+      couponText,
     ] = parts;
 
     const items = itemText
@@ -53,6 +78,7 @@ function parseShortPitStopQR(code) {
       total: Number(total || 0),
       pointsToEarn: Number(pointsToEarn || 0),
       items,
+      claimedCoupon: parseCouponText(couponText),
     };
   }
 
@@ -69,6 +95,7 @@ function parseShortPitStopQR(code) {
       total: Number(parsed.total || 0),
       pointsToEarn: Number(parsed.pointsToEarn || 0),
       items: parsed.items || [],
+      claimedCoupon: parsed.claimedCoupon || null,
     };
   }
 
@@ -86,6 +113,7 @@ function parseShortPitStopQR(code) {
         quantity: Number(item.q || 1),
         price: Number(item.p || 0),
       })),
+      claimedCoupon: parsed.coupon || null,
     };
   }
 
