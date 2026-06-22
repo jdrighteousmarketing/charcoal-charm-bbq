@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import HomeHero from '@/components/customer/HomeHero';
 import QuickLinks from '@/components/customer/QuickLinks';
 import { Link } from 'react-router-dom';
@@ -8,33 +8,9 @@ import PullToRefresh from '@/components/customer/PullToRefresh';
 import { useCustomerProfile } from '@/hooks/useCustomerProfile';
 import { useCart } from '@/hooks/useCart';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabaseClient';
 
-const MENU_ITEM_KEY = 'pitstop_menu_items';
-
-const DEFAULT_FEATURED_ITEMS = [
-  {
-    id: 'featured_demo_burger',
-    name: 'Pit Stop Burger',
-    description: 'Fresh burger special with classic toppings.',
-    price: 8.99,
-    image_url: '',
-    is_available: true,
-    is_sold_out: false,
-    is_featured: true,
-    sort_order: 1,
-  },
-  {
-    id: 'featured_demo_combo',
-    name: 'Lunch Combo',
-    description: 'A quick combo meal made for lunch breaks.',
-    price: 10.99,
-    image_url: '',
-    is_available: true,
-    is_sold_out: false,
-    is_featured: true,
-    sort_order: 2,
-  },
-];
+const RESTAURANT_ID = 'pit_stop_mobile';
 
 const DEFAULT_HOURS = [
   { day: 'Monday', open: '10:00', close: '20:00', closed: false },
@@ -47,16 +23,14 @@ const DEFAULT_HOURS = [
 ];
 
 const DEFAULT_SETTINGS = {
-  business_name: 'The Pit Stop',
+  business_name: 'My Restaurant Name',
   tagline: 'Fresh food, fast service, real rewards.',
-  phone: '270-000-0000',
-  address: '123 Main Street, Lebanon, KY 40033',
+  phone: '',
+  address: 'Your Address Here',
   logo_url: '',
-  hero_image_url:
-    'https://images.unsplash.com/photo-1565123409695-7b5ef63a2efb?w=800',
-  background_image_url:
-    'https://images.unsplash.com/photo-1565123409695-7b5ef63a2efb?w=800',
-  overlay_color: '#ff7b00',
+  hero_image_url: '',
+  background_image_url: '',
+  overlay_color: '#000000',
   overlay_opacity: 0.5,
   business_hours: DEFAULT_HOURS,
 };
@@ -80,9 +54,66 @@ function readJSON(key, fallback) {
 export default function Home() {
   const { data: customerProfile } = useCustomerProfile();
   const { addToCart } = useCart(customerProfile?.id);
+
   const [savedUser, setSavedUser] = useState(() =>
     readJSON('pitstop_demo_user', {})
   );
+
+  const [featuredItems, setFeaturedItems] = useState([]);
+  const [settings, setSettings] = useState(null);
+  const [loadingHome, setLoadingHome] = useState(true);
+
+  const loadHomeData = async () => {
+    setLoadingHome(true);
+
+    try {
+      const [
+        { data: restaurantData, error: restaurantError },
+        { data: itemData, error: itemError },
+      ] = await Promise.all([
+        supabase
+          .from('restaurants')
+          .select('*')
+          .eq('restaurant_id', RESTAURANT_ID)
+          .maybeSingle(),
+
+        supabase
+          .from('menu_items')
+          .select('*')
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('is_featured', true)
+          .eq('is_available', true)
+          .eq('is_sold_out', false)
+          .order('sort_order', { ascending: true })
+          .limit(6),
+      ]);
+
+      if (restaurantError) throw restaurantError;
+      if (itemError) throw itemError;
+
+      setSettings({
+        ...DEFAULT_SETTINGS,
+        ...(restaurantData || {}),
+        business_name:
+          restaurantData?.business_name ||
+          restaurantData?.name ||
+          DEFAULT_SETTINGS.business_name,
+        business_hours:
+          restaurantData?.business_hours?.length > 0
+            ? restaurantData.business_hours
+            : DEFAULT_HOURS,
+      });
+
+      setFeaturedItems(itemData || []);
+    } catch (error) {
+      console.error(error);
+
+      setSettings(DEFAULT_SETTINGS);
+      setFeaturedItems([]);
+    } finally {
+      setLoadingHome(false);
+    }
+  };
 
   useEffect(() => {
     const syncUser = () => {
@@ -93,38 +124,14 @@ export default function Home() {
     window.addEventListener('pitstop-user-updated', syncUser);
     window.addEventListener('focus', syncUser);
 
+    loadHomeData();
+
     return () => {
       window.removeEventListener('storage', syncUser);
       window.removeEventListener('pitstop-user-updated', syncUser);
       window.removeEventListener('focus', syncUser);
     };
   }, []);
-
-  const savedSettings = readJSON('pitstop_business_settings', {});
-  const storedMenuItems = readJSON(MENU_ITEM_KEY, []);
-  const menuItems =
-    storedMenuItems.length > 0 ? storedMenuItems : DEFAULT_FEATURED_ITEMS;
-
-  const featuredItems = useMemo(() => {
-    return [...menuItems]
-      .filter(
-        (item) =>
-          item.is_available !== false &&
-          item.is_sold_out !== true &&
-          item.is_featured === true
-      )
-      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-      .slice(0, 6);
-  }, [menuItems]);
-
-  const settings = {
-    ...DEFAULT_SETTINGS,
-    ...savedSettings,
-    business_hours:
-      savedSettings.business_hours?.length > 0
-        ? savedSettings.business_hours
-        : DEFAULT_HOURS,
-  };
 
   const profile = {
     name:
@@ -134,8 +141,8 @@ export default function Home() {
       'Customer',
     email: savedUser.email || customerProfile?.email || 'customer@pitstop.com',
     points_balance: Number(
-  savedUser.points_balance ?? customerProfile?.points_balance ?? 0
-),
+      savedUser.points_balance ?? customerProfile?.points_balance ?? 0
+    ),
     customer_id_code:
       savedUser.customer_id_code ||
       customerProfile?.customer_id_code ||
@@ -151,8 +158,17 @@ export default function Home() {
 
   const handleRefresh = async () => {
     setSavedUser(readJSON('pitstop_demo_user', {}));
+    await loadHomeData();
     return true;
   };
+
+  if (loadingHome || !settings) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <PullToRefresh onRefresh={handleRefresh} className="pb-4">

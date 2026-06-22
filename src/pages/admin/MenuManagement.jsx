@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect, useRef } from 'react';
 import {
   Plus,
@@ -33,6 +34,7 @@ import {
 
 import { CSS } from '@dnd-kit/utilities';
 
+import { supabase } from '@/lib/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -51,11 +53,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 
-const CATEGORY_KEY = 'pitstop_menu_categories';
-const ITEM_KEY = 'pitstop_menu_items';
-
-const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
+const RESTAURANT_ID = 'pit_stop_mobile';
 function SortableCategoryCard({
   cat,
   catItems,
@@ -148,6 +146,7 @@ export default function MenuManagement() {
   const [catForm, setCatForm] = useState({});
   const [imageUploading, setImageUploading] = useState(false);
   const [expandedCat, setExpandedCat] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const imageInputRef = useRef(null);
 
@@ -167,21 +166,41 @@ export default function MenuManagement() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+    const loadMenuData = async () => {
+    setLoading(true);
+
+    try {
+      const [{ data: categoryData, error: categoryError }, { data: itemData, error: itemError }] =
+        await Promise.all([
+          supabase
+            .from('menu_categories')
+            .select('*')
+            .eq('restaurant_id', RESTAURANT_ID)
+            .order('sort_order', { ascending: true }),
+
+          supabase
+            .from('menu_items')
+            .select('*')
+            .eq('restaurant_id', RESTAURANT_ID)
+            .order('sort_order', { ascending: true }),
+        ]);
+
+      if (categoryError) throw categoryError;
+      if (itemError) throw itemError;
+
+      setCategories(categoryData || []);
+      setItems(itemData || []);
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to load menu data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    setCategories(JSON.parse(localStorage.getItem(CATEGORY_KEY) || '[]'));
-    setItems(JSON.parse(localStorage.getItem(ITEM_KEY) || '[]'));
+    loadMenuData();
   }, []);
-
-  const saveCategories = (nextCategories) => {
-    setCategories(nextCategories);
-    localStorage.setItem(CATEGORY_KEY, JSON.stringify(nextCategories));
-  };
-
-  const saveItems = (nextItems) => {
-    setItems(nextItems);
-    localStorage.setItem(ITEM_KEY, JSON.stringify(nextItems));
-  };
 
   const sortedItems = [...items].sort(
     (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
@@ -190,8 +209,7 @@ export default function MenuManagement() {
   const sortedCategories = [...categories].sort(
     (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
   );
-
-  const handleCategoryDragEnd = (event) => {
+    const handleCategoryDragEnd = async (event) => {
     const { active, over } = event;
 
     if (!over || active.id === over.id) return;
@@ -208,8 +226,25 @@ export default function MenuManagement() {
       })
     );
 
-    saveCategories(reordered);
-    toast.success('Categories reordered');
+    setCategories(reordered);
+
+    try {
+      await Promise.all(
+        reordered.map((cat) =>
+          supabase
+            .from('menu_categories')
+            .update({ sort_order: cat.sort_order })
+            .eq('id', cat.id)
+            .eq('restaurant_id', RESTAURANT_ID)
+        )
+      );
+
+      toast.success('Categories reordered');
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to reorder categories');
+      loadMenuData();
+    }
   };
 
   const openItemDialog = (item = null) => {
@@ -246,109 +281,208 @@ export default function MenuManagement() {
     );
     setCatDialog(true);
   };
-
-  const handleSaveItem = () => {
+    const handleSaveCat = async () => {
     const data = {
-      ...itemForm,
+      restaurant_id: RESTAURANT_ID,
+      name: catForm.name || '',
+      description: catForm.description || '',
+      sort_order: parseInt(catForm.sort_order, 10) || 0,
+      is_active: catForm.is_active ?? true,
+    };
+
+    try {
+      if (editingCat) {
+        const { error } = await supabase
+          .from('menu_categories')
+          .update(data)
+          .eq('id', editingCat.id)
+          .eq('restaurant_id', RESTAURANT_ID);
+
+        if (error) throw error;
+
+        toast.success('Category updated!');
+      } else {
+        const { error } = await supabase.from('menu_categories').insert(data);
+
+        if (error) throw error;
+
+        toast.success('Category created!');
+      }
+
+      setCatDialog(false);
+      setEditingCat(null);
+      setCatForm({});
+      await loadMenuData();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to save category');
+    }
+  };
+
+  const handleSaveItem = async () => {
+    const data = {
+      restaurant_id: RESTAURANT_ID,
+      name: itemForm.name || '',
+      description: itemForm.description || '',
       price: parseFloat(itemForm.price) || 0,
-      sort_order: parseInt(itemForm.sort_order) || 0,
+      image_url: itemForm.image_url || '',
+      category_id: itemForm.category_id || null,
+      is_available: itemForm.is_available ?? true,
+      is_sold_out: itemForm.is_sold_out ?? false,
+      is_featured: itemForm.is_featured ?? false,
+      sort_order: parseInt(itemForm.sort_order, 10) || 0,
     };
 
-    if (editingItem) {
-      saveItems(
-        items.map((item) =>
-          item.id === editingItem.id ? { ...item, ...data } : item
-        )
-      );
-      toast.success('Item updated!');
-    } else {
-      saveItems([...items, { ...data, id: makeId() }]);
-      toast.success('Item created!');
+    try {
+      if (editingItem) {
+        const { error } = await supabase
+          .from('menu_items')
+          .update(data)
+          .eq('id', editingItem.id)
+          .eq('restaurant_id', RESTAURANT_ID);
+
+        if (error) throw error;
+
+        toast.success('Item updated!');
+      } else {
+        const { error } = await supabase.from('menu_items').insert(data);
+
+        if (error) throw error;
+
+        toast.success('Item created!');
+      }
+
+      setItemDialog(false);
+      setEditingItem(null);
+      setItemForm({});
+      await loadMenuData();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to save item');
     }
-
-    setItemDialog(false);
   };
+    const deleteItem = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('menu_items')
+        .delete()
+        .eq('id', id)
+        .eq('restaurant_id', RESTAURANT_ID);
 
-  const handleSaveCat = () => {
-    const data = {
-      ...catForm,
-      sort_order: parseInt(catForm.sort_order) || 0,
-    };
+      if (error) throw error;
 
-    if (editingCat) {
-      saveCategories(
-        categories.map((cat) =>
-          cat.id === editingCat.id ? { ...cat, ...data } : cat
-        )
-      );
-      toast.success('Category updated!');
-    } else {
-      saveCategories([...categories, { ...data, id: makeId() }]);
-      toast.success('Category created!');
+      toast.success('Item deleted');
+      await loadMenuData();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to delete item');
     }
-
-    setCatDialog(false);
-  };
-    const deleteItem = (id) => {
-    saveItems(items.filter((item) => item.id !== id));
-    toast.success('Item deleted');
   };
 
-  const deleteCat = (id) => {
-    saveCategories(categories.filter((cat) => cat.id !== id));
-    saveItems(
-      items.map((item) =>
-        item.category_id === id ? { ...item, category_id: '' } : item
-      )
-    );
-    toast.success('Category deleted');
+  const deleteCat = async (id) => {
+    try {
+      const { error: itemError } = await supabase
+        .from('menu_items')
+        .update({ category_id: null })
+        .eq('category_id', id)
+        .eq('restaurant_id', RESTAURANT_ID);
+
+      if (itemError) throw itemError;
+
+      const { error: categoryError } = await supabase
+        .from('menu_categories')
+        .delete()
+        .eq('id', id)
+        .eq('restaurant_id', RESTAURANT_ID);
+
+      if (categoryError) throw categoryError;
+
+      toast.success('Category deleted');
+      await loadMenuData();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to delete category');
+    }
   };
 
-  const toggleSoldOut = (item) => {
-    saveItems(
-      items.map((i) =>
-        i.id === item.id ? { ...i, is_sold_out: !i.is_sold_out } : i
-      )
-    );
+  const toggleSoldOut = async (item) => {
+    try {
+      const { error } = await supabase
+        .from('menu_items')
+        .update({ is_sold_out: !item.is_sold_out })
+        .eq('id', item.id)
+        .eq('restaurant_id', RESTAURANT_ID);
+
+      if (error) throw error;
+
+      await loadMenuData();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to update sold out status');
+    }
   };
 
-  const toggleAvailable = (item) => {
-    saveItems(
-      items.map((i) =>
-        i.id === item.id ? { ...i, is_available: !i.is_available } : i
-      )
-    );
+  const toggleAvailable = async (item) => {
+    try {
+      const { error } = await supabase
+        .from('menu_items')
+        .update({ is_available: !item.is_available })
+        .eq('id', item.id)
+        .eq('restaurant_id', RESTAURANT_ID);
+
+      if (error) throw error;
+
+      await loadMenuData();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to update availability');
+    }
   };
 
   const getCategoryName = (id) => {
     return categories.find((c) => c.id === id)?.name || 'Uncategorized';
   };
-
-  const readImageAsDataUrl = (file) => {
+    const readImageAsDataUrl = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
+
       reader.onload = () => resolve(reader.result);
       reader.onerror = reject;
+
       reader.readAsDataURL(file);
     });
   };
 
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
+
     if (!file) return;
 
     setImageUploading(true);
 
     try {
       const imageUrl = await readImageAsDataUrl(file);
-      setItemForm((prev) => ({ ...prev, image_url: imageUrl }));
+
+      setItemForm((prev) => ({
+        ...prev,
+        image_url: imageUrl,
+      }));
+
       toast.success('Image uploaded!');
-    } catch {
+    } catch (error) {
+      console.error(error);
       toast.error('Image upload failed');
     } finally {
       setImageUploading(false);
     }
   };
+    if (loading) {
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -378,8 +512,7 @@ export default function MenuManagement() {
           <TabsTrigger value="categories">Categories ({categories.length})</TabsTrigger>
           <TabsTrigger value="items">Menu Items ({items.length})</TabsTrigger>
         </TabsList>
-
-        <TabsContent value="categories">
+                <TabsContent value="categories">
           <div className="space-y-2">
             {categories.length === 0 ? (
               <Card>
@@ -401,6 +534,7 @@ export default function MenuManagement() {
                     const catItems = sortedItems.filter(
                       (i) => i.category_id === cat.id
                     );
+
                     const isExpanded = expandedCat === cat.id;
 
                     return (
@@ -409,7 +543,9 @@ export default function MenuManagement() {
                         cat={cat}
                         catItems={catItems}
                         isExpanded={isExpanded}
-                        onToggle={() => setExpandedCat(isExpanded ? null : cat.id)}
+                        onToggle={() =>
+                          setExpandedCat(isExpanded ? null : cat.id)
+                        }
                         onEdit={() => openCatDialog(cat)}
                         onDelete={() => deleteCat(cat.id)}
                       >
@@ -458,9 +594,11 @@ export default function MenuManagement() {
                                     <h3 className="font-semibold text-sm">
                                       {item.name}
                                     </h3>
+
                                     <p className="text-xs text-muted-foreground truncate">
                                       {item.description || 'No description'}
                                     </p>
+
                                     <p className="text-sm font-bold text-primary mt-0.5">
                                       ${Number(item.price || 0).toFixed(2)}
                                     </p>
@@ -601,8 +739,7 @@ export default function MenuManagement() {
           </div>
         </TabsContent>
       </Tabs>
-
-      <Dialog open={itemDialog} onOpenChange={setItemDialog}>
+            <Dialog open={itemDialog} onOpenChange={setItemDialog}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit Item' : 'Add Item'}</DialogTitle>
@@ -657,6 +794,7 @@ export default function MenuManagement() {
                     />
 
                     <button
+                      type="button"
                       onClick={() =>
                         setItemForm((prev) => ({ ...prev, image_url: '' }))
                       }
@@ -763,8 +901,7 @@ export default function MenuManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={catDialog} onOpenChange={setCatDialog}>
+            <Dialog open={catDialog} onOpenChange={setCatDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>

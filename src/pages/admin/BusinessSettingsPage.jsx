@@ -9,6 +9,9 @@ import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Save, Upload, X, Palette, Sliders } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabaseClient';
+
+const RESTAURANT_ID = 'pit_stop_mobile';
 
 const DEFAULT_HOURS = [
   { day: 'Monday', open: '11:00', close: '21:00', closed: false },
@@ -21,19 +24,19 @@ const DEFAULT_HOURS = [
 ];
 
 const DEFAULT_SETTINGS = {
-  business_name: 'The Pit Stop',
+  business_name: 'My Restaurant Name',
   tagline: 'Fresh food, fast service, real rewards.',
   logo_url: '',
   background_image_url: '',
   hero_image_url: '',
   overlay_color: '#000000',
   overlay_opacity: 0.5,
-  phone: '270-000-0000',
+  phone: '',
   email: '',
   website: '',
   facebook_url: '',
   instagram_url: '',
-  address: '123 Main Street, Lebanon, KY 40033',
+  address: 'Your Address Here',
   latitude: '',
   longitude: '',
   current_location: '',
@@ -44,6 +47,35 @@ const DEFAULT_SETTINGS = {
   points_per_dollar: 1,
 };
 
+function SaveButton({ isSaving, saved, onClick }) {
+  return (
+    <Button
+      onClick={onClick}
+      disabled={isSaving}
+      className="gap-2 min-w-[160px] transition-all duration-300"
+    >
+      {isSaving ? (
+        <>
+          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          Saving...
+        </>
+      ) : saved ? (
+        <>
+          <span className="w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center text-xs">
+            ✓
+          </span>
+          Saved!
+        </>
+      ) : (
+        <>
+          <Save className="w-4 h-4" />
+          Save Changes
+        </>
+      )}
+    </Button>
+  );
+}
+
 export default function BusinessSettingsPage() {
   const queryClient = useQueryClient();
 
@@ -51,47 +83,118 @@ export default function BusinessSettingsPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [logoUploading, setLogoUploading] = useState(false);
   const [backgroundUploading, setBackgroundUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const logoInputRef = useRef(null);
   const backgroundInputRef = useRef(null);
 
   useEffect(() => {
-    const savedSettings = JSON.parse(
-      localStorage.getItem('pitstop_business_settings') || '{}'
-    );
-
-    setForm({
-      ...DEFAULT_SETTINGS,
-      ...savedSettings,
-      business_hours:
-        savedSettings.business_hours?.length > 0
-          ? savedSettings.business_hours
-          : DEFAULT_HOURS,
-    });
+    loadSettings();
   }, []);
+
+  const loadSettings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('restaurants')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        setForm({
+          ...DEFAULT_SETTINGS,
+          ...data,
+          business_name:
+            data.business_name || data.name || DEFAULT_SETTINGS.business_name,
+          business_hours:
+            data.business_hours?.length > 0
+              ? data.business_hours
+              : DEFAULT_HOURS,
+        });
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to load business settings');
+    }
+  };
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
+    setSaved(false);
   };
 
-  const saveSettings = () => {
+  const saveSettings = async () => {
+    setIsSaving(true);
+    setSaved(false);
+
     const cleanData = {
-      ...form,
-      latitude: form.latitude ? parseFloat(form.latitude) : '',
-      longitude: form.longitude ? parseFloat(form.longitude) : '',
+      restaurant_id: RESTAURANT_ID,
+      name: form.business_name || 'My Restaurant Name',
+      business_name: form.business_name || 'My Restaurant Name',
+      tagline: form.tagline || '',
+      logo_url: form.logo_url || '',
+      background_image_url: form.background_image_url || '',
+      hero_image_url: form.hero_image_url || form.background_image_url || '',
+      overlay_color: form.overlay_color || '#000000',
+      overlay_opacity: parseFloat(form.overlay_opacity) || 0.5,
+      phone: form.phone || '',
+      email: form.email || '',
+      website: form.website || '',
+      facebook_url: form.facebook_url || '',
+      instagram_url: form.instagram_url || '',
+      address: form.address || '',
+      latitude: form.latitude ? parseFloat(form.latitude) : null,
+      longitude: form.longitude ? parseFloat(form.longitude) : null,
+      current_location: form.current_location || '',
+      business_hours:
+        form.business_hours?.length > 0 ? form.business_hours : DEFAULT_HOURS,
+      privacy_policy_url: form.privacy_policy_url || '',
+      terms_of_service_url: form.terms_of_service_url || '',
+      account_deletion_url: form.account_deletion_url || '',
       points_per_dollar: parseFloat(form.points_per_dollar) || 1,
+      active: true,
     };
 
-    localStorage.setItem('pitstop_business_settings', JSON.stringify(cleanData));
+    try {
+      const { data: updated, error: updateError } = await supabase
+        .from('restaurants')
+        .update(cleanData)
+        .eq('restaurant_id', RESTAURANT_ID)
+        .select()
+        .maybeSingle();
 
-    queryClient.invalidateQueries({ queryKey: ['businessSettings'] });
-    queryClient.invalidateQueries({ queryKey: ['adminBusinessSettings'] });
-    queryClient.invalidateQueries({ queryKey: ['homeHeroSettings'] });
+      if (updateError) throw updateError;
 
-    setForm(cleanData);
-    setHasChanges(false);
-    toast.success('Settings saved!');
+      if (!updated) {
+        const { error: insertError } = await supabase
+          .from('restaurants')
+          .insert(cleanData);
+
+        if (insertError) throw insertError;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['businessSettings'] });
+      queryClient.invalidateQueries({ queryKey: ['adminBusinessSettings'] });
+      queryClient.invalidateQueries({ queryKey: ['homeHeroSettings'] });
+
+      setForm(cleanData);
+      setHasChanges(false);
+      setSaved(true);
+      toast.success('Settings saved!');
+
+      setTimeout(() => {
+        setSaved(false);
+      }, 2500);
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to save settings');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const readImageAsDataUrl = (file) => {
@@ -116,6 +219,7 @@ export default function BusinessSettingsPage() {
       updateForm('logo_url', imageUrl);
       toast.success('Logo uploaded!');
     } catch (error) {
+      console.error(error);
       toast.error('Logo upload failed');
     } finally {
       setLogoUploading(false);
@@ -134,6 +238,7 @@ export default function BusinessSettingsPage() {
       updateForm('hero_image_url', imageUrl);
       toast.success('Background image uploaded!');
     } catch (error) {
+      console.error(error);
       toast.error('Background upload failed');
     } finally {
       setBackgroundUploading(false);
@@ -164,11 +269,8 @@ export default function BusinessSettingsPage() {
           </p>
         </div>
 
-        {hasChanges && (
-          <Button onClick={saveSettings} className="gap-2">
-            <Save className="w-4 h-4" />
-            Save Changes
-          </Button>
+        {(hasChanges || saved) && (
+          <SaveButton isSaving={isSaving} saved={saved} onClick={saveSettings} />
         )}
       </div>
 
@@ -242,6 +344,7 @@ export default function BusinessSettingsPage() {
                       />
 
                       <button
+                        type="button"
                         onClick={() => updateForm('logo_url', '')}
                         className="absolute -top-2 -right-2 w-5 h-5 bg-destructive rounded-full flex items-center justify-center"
                       >
@@ -301,6 +404,7 @@ export default function BusinessSettingsPage() {
                       />
 
                       <button
+                        type="button"
                         onClick={() => {
                           updateForm('background_image_url', '');
                           updateForm('hero_image_url', '');
@@ -343,10 +447,6 @@ export default function BusinessSettingsPage() {
                   Background Overlay Color
                 </Label>
 
-                <p className="text-xs text-muted-foreground mb-2">
-                  Color overlay on top of the hero image
-                </p>
-
                 <div className="mt-2 flex items-center gap-3">
                   <input
                     type="color"
@@ -375,15 +475,13 @@ export default function BusinessSettingsPage() {
                   Overlay Transparency
                 </Label>
 
-                <p className="text-xs text-muted-foreground mb-2">
-                  Higher percentage means stronger overlay color
-                </p>
-
                 <div className="mt-2 space-y-3">
                   <div className="flex items-center gap-3">
                     <Slider
                       value={[form.overlay_opacity ?? 0.5]}
-                      onValueChange={([value]) => updateForm('overlay_opacity', value)}
+                      onValueChange={([value]) =>
+                        updateForm('overlay_opacity', value)
+                      }
                       min={0}
                       max={1}
                       step={0.05}
@@ -483,11 +581,15 @@ export default function BusinessSettingsPage() {
                     {!h.closed ? (
                       <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-3 w-full">
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Open</Label>
+                          <Label className="text-xs text-muted-foreground">
+                            Open
+                          </Label>
                           <Input
                             type="time"
                             value={h.open || ''}
-                            onChange={(e) => updateHours(i, 'open', e.target.value)}
+                            onChange={(e) =>
+                              updateHours(i, 'open', e.target.value)
+                            }
                             className="w-full min-w-0"
                           />
                           {h.open && (
@@ -500,11 +602,15 @@ export default function BusinessSettingsPage() {
                         <span className="text-muted-foreground pt-8">to</span>
 
                         <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Close</Label>
+                          <Label className="text-xs text-muted-foreground">
+                            Close
+                          </Label>
                           <Input
                             type="time"
                             value={h.close || ''}
-                            onChange={(e) => updateHours(i, 'close', e.target.value)}
+                            onChange={(e) =>
+                              updateHours(i, 'close', e.target.value)
+                            }
                             className="w-full min-w-0"
                           />
                           {h.close && (
@@ -546,7 +652,9 @@ export default function BusinessSettingsPage() {
                 <Label>Current Location Display</Label>
                 <Input
                   value={form.current_location || ''}
-                  onChange={(e) => updateForm('current_location', e.target.value)}
+                  onChange={(e) =>
+                    updateForm('current_location', e.target.value)
+                  }
                   className="mt-1"
                   placeholder="e.g. Downtown Food Court"
                 />
@@ -593,7 +701,9 @@ export default function BusinessSettingsPage() {
                   min="0"
                   step="1"
                   value={form.points_per_dollar || 1}
-                  onChange={(e) => updateForm('points_per_dollar', e.target.value)}
+                  onChange={(e) =>
+                    updateForm('points_per_dollar', e.target.value)
+                  }
                   className="mt-1"
                 />
 
@@ -616,7 +726,9 @@ export default function BusinessSettingsPage() {
                 <Label>Privacy Policy URL</Label>
                 <Input
                   value={form.privacy_policy_url || ''}
-                  onChange={(e) => updateForm('privacy_policy_url', e.target.value)}
+                  onChange={(e) =>
+                    updateForm('privacy_policy_url', e.target.value)
+                  }
                   className="mt-1"
                 />
               </div>
@@ -625,7 +737,9 @@ export default function BusinessSettingsPage() {
                 <Label>Terms of Service URL</Label>
                 <Input
                   value={form.terms_of_service_url || ''}
-                  onChange={(e) => updateForm('terms_of_service_url', e.target.value)}
+                  onChange={(e) =>
+                    updateForm('terms_of_service_url', e.target.value)
+                  }
                   className="mt-1"
                 />
               </div>
@@ -634,7 +748,9 @@ export default function BusinessSettingsPage() {
                 <Label>Account Deletion URL</Label>
                 <Input
                   value={form.account_deletion_url || ''}
-                  onChange={(e) => updateForm('account_deletion_url', e.target.value)}
+                  onChange={(e) =>
+                    updateForm('account_deletion_url', e.target.value)
+                  }
                   className="mt-1"
                 />
               </div>
@@ -643,17 +759,14 @@ export default function BusinessSettingsPage() {
         </TabsContent>
       </Tabs>
 
-      {hasChanges && (
+      {(hasChanges || saved) && (
         <div className="fixed bottom-0 left-0 right-0 lg:left-64 bg-card/95 backdrop-blur-xl border-t border-border p-4 z-40">
           <div className="max-w-6xl flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              You have unsaved changes
+              {saved ? 'Settings saved successfully' : 'You have unsaved changes'}
             </p>
 
-            <Button onClick={saveSettings} className="gap-2">
-              <Save className="w-4 h-4" />
-              Save Changes
-            </Button>
+            <SaveButton isSaving={isSaving} saved={saved} onClick={saveSettings} />
           </div>
         </div>
       )}

@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 import MenuItemCard from '@/components/customer/MenuItemCard';
 import { motion } from 'framer-motion';
 import PullToRefresh from '@/components/customer/PullToRefresh';
+import { supabase } from '@/lib/supabaseClient';
+import { toast } from 'sonner';
 
-const CATEGORY_KEY = 'pitstop_menu_categories';
-const ITEM_KEY = 'pitstop_menu_items';
+const RESTAURANT_ID = 'pit_stop_mobile';
 
 export default function Menu() {
   const [activeCategory, setActiveCategory] = useState('all');
@@ -15,33 +16,40 @@ export default function Menu() {
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
 
-  const loadMenuData = () => {
-    const savedCategories = JSON.parse(
-      localStorage.getItem(CATEGORY_KEY) || '[]'
-    );
+  const loadMenuData = async () => {
+    try {
+      const [{ data: categoryData, error: categoryError }, { data: itemData, error: itemError }] =
+        await Promise.all([
+          supabase
+            .from('menu_categories')
+            .select('*')
+            .eq('restaurant_id', RESTAURANT_ID)
+            .order('sort_order', { ascending: true }),
 
-    const savedItems = JSON.parse(localStorage.getItem(ITEM_KEY) || '[]');
+          supabase
+            .from('menu_items')
+            .select('*')
+            .eq('restaurant_id', RESTAURANT_ID)
+            .order('sort_order', { ascending: true }),
+        ]);
 
-    setCategories(savedCategories);
-    setItems(savedItems);
+      if (categoryError) throw categoryError;
+      if (itemError) throw itemError;
+
+      setCategories(categoryData || []);
+      setItems(itemData || []);
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to load menu');
+    }
   };
 
   useEffect(() => {
     loadMenuData();
-
-    const handleStorageChange = () => {
-      loadMenuData();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
   }, []);
 
   const handleRefresh = async () => {
-    loadMenuData();
+    await loadMenuData();
     return true;
   };
 
@@ -104,22 +112,22 @@ export default function Menu() {
 
         {hasMenuData && (
           <>
-           <div className="px-5 pb-2">
-  <div className="flex items-center gap-3 text-primary font-semibold">
-    <span className="text-sm">
-      Scroll this way to see more!
-    </span>
+            <div className="px-5 pb-2">
+              <div className="flex items-center gap-3 text-primary font-semibold">
+                <span className="text-sm">
+                  Scroll this way to see more!
+                </span>
 
-    <span
-      className="text-4xl font-black animate-bounce leading-none"
-      style={{
-        animationDuration: '0.8s',
-      }}
-    >
-      →
-    </span>
-  </div>
-</div>
+                <span
+                  className="text-4xl font-black animate-bounce leading-none"
+                  style={{
+                    animationDuration: '0.8s',
+                  }}
+                >
+                  →
+                </span>
+              </div>
+            </div>
 
             <div className="flex gap-2 overflow-x-auto px-5 pb-3 -mx-0 scrollbar-hide">
               <button
