@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
-import { format } from 'date-fns';
+import { format, startOfDay, endOfDay } from 'date-fns';
 import { supabase } from '@/lib/supabaseClient';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
@@ -28,13 +28,17 @@ const managementTools = [
 ];
 
 export default function Dashboard() {
+  const todayStart = startOfDay(new Date()).toISOString();
+  const todayEnd = endOfDay(new Date()).toISOString();
+
   const { data = {}, isLoading } = useQuery({
-    queryKey: ['adminDashboardStats', RESTAURANT_ID],
+    queryKey: ['adminDashboardStats', RESTAURANT_ID, todayStart],
     queryFn: async () => {
       const [
         restaurantResult,
         customersResult,
-        transactionsResult,
+        todayTransactionsResult,
+        allTransactionsResult,
         ordersResult,
         menuItemsResult,
         rewardsResult,
@@ -47,13 +51,21 @@ export default function Dashboard() {
           .maybeSingle(),
 
         supabase
-  .from('customers')
-  .select('id', { count: 'exact', head: true })
-  .eq('restaurant_id', RESTAURANT_ID),
+          .from('customers')
+          .select('id', { count: 'exact', head: true })
+          .eq('restaurant_id', RESTAURANT_ID),
 
         supabase
-          .from('point_transactions')
-          .select('points, type')
+          .from('points_transactions')
+          .select('points_amount, transaction_type, created_at')
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('transaction_type', 'earned')
+          .gte('created_at', todayStart)
+          .lte('created_at', todayEnd),
+
+        supabase
+          .from('points_transactions')
+          .select('id', { count: 'exact', head: true })
           .eq('restaurant_id', RESTAURANT_ID),
 
         supabase
@@ -83,17 +95,19 @@ export default function Dashboard() {
 
       if (restaurantResult.error) console.error('Restaurant error:', restaurantResult.error);
       if (customersResult.error) console.error('Customers error:', customersResult.error);
-      if (transactionsResult.error) console.error('Transactions error:', transactionsResult.error);
+      if (todayTransactionsResult.error) console.error('Today transactions error:', todayTransactionsResult.error);
+      if (allTransactionsResult.error) console.error('All transactions error:', allTransactionsResult.error);
       if (ordersResult.error) console.error('Orders error:', ordersResult.error);
       if (menuItemsResult.error) console.error('Menu items error:', menuItemsResult.error);
       if (rewardsResult.error) console.error('Rewards error:', rewardsResult.error);
       if (promotionsResult.error) console.error('Promotions error:', promotionsResult.error);
 
-      const transactions = transactionsResult.data || [];
+      const todayTransactions = todayTransactionsResult.data || [];
 
-      const totalPointsIssued = transactions
-        .filter((t) => t.type === 'earned' || t.type === 'birthday_bonus')
-        .reduce((sum, t) => sum + Number(t.points || 0), 0);
+      const pointsIssuedToday = todayTransactions.reduce(
+        (sum, transaction) => sum + Number(transaction.points_amount || 0),
+        0
+      );
 
       return {
         businessName:
@@ -101,12 +115,12 @@ export default function Dashboard() {
           restaurantResult.data?.businessName ||
           'Owner Dashboard',
         customersCount: customersResult.count || 0,
-        totalPointsIssued,
+        pointsIssuedToday,
         orders: ordersResult.data || [],
         menuItemsCount: menuItemsResult.count || 0,
         rewardsCount: rewardsResult.count || 0,
         promotionsCount: promotionsResult.count || 0,
-        transactionsCount: transactions.length,
+        transactionsCount: allTransactionsResult.count || 0,
       };
     },
   });
@@ -120,8 +134,8 @@ export default function Dashboard() {
       path: '/admin/customers',
     },
     {
-      label: 'Points Issued',
-      value: isLoading ? '...' : Number(data.totalPointsIssued || 0).toLocaleString(),
+      label: 'Points Issued Today',
+      value: isLoading ? '...' : Number(data.pointsIssuedToday || 0).toLocaleString(),
       icon: Star,
       color: 'text-amber-400',
       path: '/admin/customers',
@@ -230,15 +244,15 @@ export default function Dashboard() {
                   <div key={order.id} className="flex justify-between border-b border-border/50 pb-2">
                     <div>
                       <p className="text-sm font-medium">
-                        {order.customer_name || 'Customer'}
+                        {order.customer_name || order.customer_code || 'Customer'}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {order.items?.length || 0} items
+                        Order #{order.order_number || 'N/A'}
                       </p>
                     </div>
 
                     <p className="text-sm font-semibold text-primary">
-                      ${Number(order.total || 0).toFixed(2)}
+                      ${Number(order.total_amount || order.total || 0).toFixed(2)}
                     </p>
                   </div>
                 ))}
@@ -269,7 +283,7 @@ export default function Dashboard() {
               </div>
 
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Orders Completed</span>
+                <span className="text-muted-foreground">Recent Orders Shown</span>
                 <span className="font-semibold">
                   {isLoading ? '...' : orders.length}
                 </span>

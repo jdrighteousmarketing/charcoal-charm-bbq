@@ -27,6 +27,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
+const TAX_RATE = 6;
 
 function getDiscountLabel(deal) {
   if (deal.discount_type === 'percentage') return `${deal.discount_value || 0}% Off`;
@@ -59,6 +60,25 @@ export default function CartSheet() {
   const [creatingCheckout, setCreatingCheckout] = useState(false);
 
   const creatingRef = useRef(false);
+
+  const { data: restaurantSettings, isLoading: settingsLoading } = useQuery({
+    queryKey: ['cartRestaurantSettings', RESTAURANT_ID],
+    staleTime: 0,
+    cacheTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('restaurants')
+        .select('points_per_dollar')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      return data || { points_per_dollar: 1 };
+    },
+  });
 
   const customerId = customerProfile?.id || null;
 
@@ -125,20 +145,6 @@ export default function CartSheet() {
     },
   });
 
-  const businessSettings = useMemo(() => {
-    const saved =
-      localStorage.getItem('businessSettings') ||
-      localStorage.getItem('pitstop_business_settings');
-
-    if (!saved) return { taxRate: 6, pointsPerDollar: 1 };
-
-    try {
-      return JSON.parse(saved);
-    } catch {
-      return { taxRate: 6, pointsPerDollar: 1 };
-    }
-  }, []);
-
   const cartItems = cart?.items || [];
 
   const cartItemCount = cartItems.reduce(
@@ -154,20 +160,12 @@ export default function CartSheet() {
     return sum + Number(item.price || 0) * Number(item.quantity || 0);
   }, 0);
 
-  const taxRate = Number(
-    businessSettings.taxRate || businessSettings.tax_rate || 6
-  );
+  const taxRate = TAX_RATE;
+  const pointsPerDollar = Number(restaurantSettings?.points_per_dollar || 1);
 
   const taxAmount = subtotal * (taxRate / 100);
   const total = subtotal + taxAmount;
-
-  const pointsPerDollar = Number(
-    businessSettings.pointsPerDollar ||
-      businessSettings.points_per_dollar ||
-      1
-  );
-
-  const pointsToEarn = Math.floor(total * pointsPerDollar);
+  const pointsToEarn = Math.round(total * pointsPerDollar);
 
   const customerName =
     customerProfile?.full_name || customerProfile?.name || 'Customer';
@@ -196,13 +194,13 @@ export default function CartSheet() {
     : null;
 
   const claimedRewards = pendingRewards.map((reward) => ({
-  checkoutRewardId: reward.id,
-  rewardId: reward.reward_id,
-  rewardName: reward.reward_name || 'Reward Added',
-  rewardDescription: reward.reward_description || '',
-  pointsRequired: Number(reward.points_required || 0),
-  status: 'pending',
-}));
+    checkoutRewardId: reward.id,
+    rewardId: reward.reward_id,
+    rewardName: reward.reward_name || 'Reward Added',
+    rewardDescription: reward.reward_description || '',
+    pointsRequired: Number(reward.points_required || 0),
+    status: 'pending',
+  }));
 
   const hasCheckoutContent =
     cartItems.length > 0 || pendingDeals.length > 0 || pendingRewards.length > 0;
@@ -217,6 +215,8 @@ export default function CartSheet() {
         subtotal: subtotal.toFixed(2),
         taxAmount: taxAmount.toFixed(2),
         total: total.toFixed(2),
+        taxRate,
+        pointsPerDollar,
         pointsToEarn,
       }),
     [
@@ -227,12 +227,14 @@ export default function CartSheet() {
       subtotal,
       taxAmount,
       total,
+      taxRate,
+      pointsPerDollar,
       pointsToEarn,
     ]
   );
 
   const createCheckoutQr = async () => {
-    if (!hasCheckoutContent || creatingRef.current) return;
+    if (!hasCheckoutContent || creatingRef.current || !restaurantSettings) return;
 
     creatingRef.current = true;
     setCreatingCheckout(true);
@@ -281,9 +283,17 @@ export default function CartSheet() {
     if (!isOpen) return;
     if (!hasCheckoutContent) return;
     if (checkoutQrValue) return;
+    if (settingsLoading || !restaurantSettings) return;
 
     createCheckoutQr();
-  }, [isOpen, hasCheckoutContent, checkoutQrValue, checkoutSignature]);
+  }, [
+    isOpen,
+    hasCheckoutContent,
+    checkoutQrValue,
+    checkoutSignature,
+    settingsLoading,
+    restaurantSettings,
+  ]);
 
   useEffect(() => {
     const handleCheckoutUpdate = () => {
@@ -320,7 +330,7 @@ export default function CartSheet() {
     };
   }, [refetchPendingDeals, refetchPendingRewards]);
 
-  if (isLoading || !customerProfile) return null;
+  if (isLoading || settingsLoading || !customerProfile) return null;
 
   const handleRemoveDeal = async (deal) => {
     setRemovingDealId(deal.id);
@@ -452,6 +462,8 @@ export default function CartSheet() {
         if (open) {
           refetchPendingDeals();
           refetchPendingRewards();
+          setCheckoutQrValue('');
+          setCheckoutCode('');
         }
       }}
     >

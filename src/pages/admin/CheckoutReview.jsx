@@ -54,7 +54,6 @@ export default function CheckoutReview() {
     setAwarding(true);
 
     try {
-      const requestedPoints = Number(checkoutData.pointsToEarn || 0);
       const customerCode = checkoutData.customerCode;
 
       if (!customerCode) {
@@ -64,15 +63,17 @@ export default function CheckoutReview() {
 
       const { data: settings, error: settingsError } = await supabase
         .from('restaurants')
-        .select('max_points_per_customer')
+        .select('points_per_dollar, max_points_per_customer')
         .eq('restaurant_id', RESTAURANT_ID)
         .maybeSingle();
 
       if (settingsError) throw settingsError;
 
-      const maxPointsPerCustomer = Number(
-        settings?.max_points_per_customer || 500
-      );
+      const pointsPerDollar = Number(settings?.points_per_dollar || 1);
+      const maxPointsPerCustomer = Number(settings?.max_points_per_customer || 500);
+
+      const orderTotal = Number(checkoutData.total || 0);
+      const requestedPoints = Math.round(orderTotal * pointsPerDollar);
 
       const { data: customer, error: fetchError } = await supabase
         .from('customers')
@@ -91,12 +92,8 @@ export default function CheckoutReview() {
       const actualPointsAwarded = Math.min(requestedPoints, availableRoom);
 
       const newPointsBalance = currentBalance + actualPointsAwarded;
-      const newLifetimePoints =
-        Number(customer.lifetime_points || 0) + actualPointsAwarded;
-
-      const newLifetimeSpend =
-        Number(customer.lifetime_spend || 0) + Number(checkoutData.total || 0);
-
+      const newLifetimePoints = Number(customer.lifetime_points || 0) + actualPointsAwarded;
+      const newLifetimeSpend = Number(customer.lifetime_spend || 0) + orderTotal;
       const newVisitCount = Number(customer.visit_count || 0) + 1;
       const orderNumber = `ORD-${Date.now()}`;
 
@@ -120,7 +117,7 @@ export default function CheckoutReview() {
           order_number: orderNumber,
           subtotal: Number(checkoutData.subtotal || 0),
           tax_amount: Number(checkoutData.taxAmount || 0),
-          total_amount: Number(checkoutData.total || 0),
+          total_amount: orderTotal,
           points_awarded: actualPointsAwarded,
           payment_method: 'outside_app',
           order_status: 'completed',
@@ -149,14 +146,8 @@ export default function CheckoutReview() {
         if (orderItemsError) throw orderItemsError;
       }
 
-      const employeeUser = JSON.parse(
-        localStorage.getItem('pitstop_employee_user') || '{}'
-      );
-
-      const adminUser = JSON.parse(
-        localStorage.getItem('pitstop_demo_user') || '{}'
-      );
-
+      const employeeUser = JSON.parse(localStorage.getItem('pitstop_employee_user') || '{}');
+      const adminUser = JSON.parse(localStorage.getItem('pitstop_demo_user') || '{}');
       const staffUser = employeeUser?.loggedIn ? employeeUser : adminUser;
 
       if (actualPointsAwarded > 0) {
@@ -171,10 +162,8 @@ export default function CheckoutReview() {
               points_amount: actualPointsAwarded,
               note:
                 actualPointsAwarded < requestedPoints
-                  ? `Earned from order total $${money(
-                      checkoutData.total
-                    )}. Capped at ${maxPointsPerCustomer} max points.`
-                  : `Earned from order total $${money(checkoutData.total)}`,
+                  ? `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar. Capped at ${maxPointsPerCustomer} max points.`
+                  : `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar.`,
               employee_name: staffUser?.name || staffUser?.email || 'Employee',
               awarded_by_employee_id: staffUser?.id || null,
               awarded_by_employee_auth_id: staffUser?.auth_user_id || null,
@@ -207,11 +196,13 @@ export default function CheckoutReview() {
           .filter(Boolean);
 
         if (rewardIds.length > 0) {
+          const redeemedAt = new Date().toISOString();
+
           const { error: rewardsError } = await supabase
             .from('customer_checkout_rewards')
             .update({
               status: 'redeemed',
-              redeemed_at: new Date().toISOString(),
+              redeemed_at: redeemedAt,
               notes: `Redeemed during order ${orderNumber}`,
             })
             .in('id', rewardIds)
@@ -219,6 +210,22 @@ export default function CheckoutReview() {
             .eq('status', 'pending');
 
           if (rewardsError) throw rewardsError;
+
+          const birthdayRewardUsed = claimedRewards.some(
+            (reward) => Number(reward.pointsRequired || 0) === 0
+          );
+
+          if (birthdayRewardUsed) {
+            const { error: birthdayError } = await supabase
+              .from('customers')
+              .update({
+                birthday_reward_redeemed_at: redeemedAt,
+              })
+              .eq('restaurant_id', RESTAURANT_ID)
+              .eq('customer_code', customerCode);
+
+            if (birthdayError) throw birthdayError;
+          }
         }
       }
 
@@ -230,11 +237,7 @@ export default function CheckoutReview() {
           .eq('checkout_code', checkoutData.checkoutCode);
       }
 
-      const savedUser = safeJsonParse(
-        localStorage.getItem('pitstop_demo_user'),
-        {}
-      );
-
+      const savedUser = safeJsonParse(localStorage.getItem('pitstop_demo_user'), {});
       const savedCode = savedUser.customer_id_code || savedUser.customer_code;
 
       if (savedCode === customerCode) {
@@ -306,12 +309,8 @@ export default function CheckoutReview() {
           ) : (
             items.map((item, index) => (
               <div key={index} className="flex justify-between text-sm">
-                <span>
-                  {item.quantity}× {item.name}
-                </span>
-                <span>
-                  ${money(Number(item.price || 0) * Number(item.quantity || 1))}
-                </span>
+                <span>{item.quantity}× {item.name}</span>
+                <span>${money(Number(item.price || 0) * Number(item.quantity || 1))}</span>
               </div>
             ))
           )}
@@ -330,24 +329,10 @@ export default function CheckoutReview() {
               {claimedCoupon.title || 'Promotion'}
             </p>
 
-            <div className="space-y-1 text-sm">
-              {claimedCoupon.promoCode && (
-                <p>
-                  <span className="font-semibold">Code:</span>{' '}
-                  {claimedCoupon.promoCode}
-                </p>
-              )}
-
-              <p>
-                <span className="font-semibold">Discount:</span>{' '}
-                {getDiscountLabel(claimedCoupon)}
-              </p>
-
-              <p>
-                <span className="font-semibold">Status:</span> Pending
-                Redemption
-              </p>
-            </div>
+            <p className="text-sm">
+              <span className="font-semibold">Discount:</span>{' '}
+              {getDiscountLabel(claimedCoupon)}
+            </p>
           </div>
         )}
 
@@ -367,12 +352,6 @@ export default function CheckoutReview() {
               <p className="font-bold text-base">
                 {reward.rewardName || 'Reward'}
               </p>
-
-              {reward.rewardDescription && (
-                <p className="text-sm text-muted-foreground">
-                  {reward.rewardDescription}
-                </p>
-              )}
 
               <p className="text-sm">
                 <span className="font-semibold">Points Cost:</span>{' '}
@@ -399,7 +378,7 @@ export default function CheckoutReview() {
 
           <div className="flex justify-between text-primary font-bold">
             <span>Points to Award</span>
-            <span>{checkoutData.pointsToEarn} pts</span>
+            <span>{checkoutData.pointsToEarn || 0} pts</span>
           </div>
         </div>
 

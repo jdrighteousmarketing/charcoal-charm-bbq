@@ -42,9 +42,53 @@ function getLifetimePoints(customer, savedUser) {
   );
 }
 
+function daysUntilBirthday(birthday) {
+  if (!birthday) return null;
+
+  const today = new Date();
+  const birthdayDate = new Date(`${birthday}T00:00:00`);
+
+  if (Number.isNaN(birthdayDate.getTime())) return null;
+
+  const todayStart = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate()
+  );
+
+  const thisYearBirthday = new Date(
+    today.getFullYear(),
+    birthdayDate.getMonth(),
+    birthdayDate.getDate()
+  );
+
+  const nextBirthday =
+    thisYearBirthday < todayStart
+      ? new Date(
+          today.getFullYear() + 1,
+          birthdayDate.getMonth(),
+          birthdayDate.getDate()
+        )
+      : thisYearBirthday;
+
+  const diffMs = nextBirthday.getTime() - todayStart.getTime();
+
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function canShowBirthdayReward(profile) {
+  if (!profile?.birthday) return false;
+  if (profile?.birthday_reward_redeemed_at) return false;
+
+  const days = daysUntilBirthday(profile.birthday);
+
+  return days !== null && days >= 0 && days <= 30;
+}
+
 export default function Rewards() {
   const [rewards, setRewards] = useState([]);
   const [transactions, setTransactions] = useState([]);
+  const [pendingBirthdayRewardIds, setPendingBirthdayRewardIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [redeemingId, setRedeemingId] = useState(null);
 
@@ -55,6 +99,8 @@ export default function Rewards() {
     points_balance: 0,
     lifetime_points: 0,
     customer_id_code: 'PIT-12345',
+    birthday: null,
+    birthday_reward_redeemed_at: null,
   });
 
   const loadRewardsData = async () => {
@@ -103,6 +149,9 @@ export default function Rewards() {
         savedUser.customer_code ||
         savedUser.customer_id_code ||
         'PIT-12345',
+      birthday: customerProfile?.birthday || savedUser.birthday || null,
+      birthday_reward_redeemed_at:
+        customerProfile?.birthday_reward_redeemed_at || null,
     };
 
     setProfile(activeProfile);
@@ -121,6 +170,25 @@ export default function Rewards() {
     } catch (error) {
       console.error('Could not load rewards:', error);
       setRewards([]);
+    }
+
+    try {
+      const { data: pendingBirthdayData, error: pendingBirthdayError } =
+        await supabase
+          .from('customer_checkout_rewards')
+          .select('reward_id')
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('customer_code', activeProfile.customer_id_code)
+          .eq('status', 'pending');
+
+      if (pendingBirthdayError) throw pendingBirthdayError;
+
+      setPendingBirthdayRewardIds(
+        (pendingBirthdayData || []).map((item) => String(item.reward_id))
+      );
+    } catch (error) {
+      console.error('Could not load pending birthday rewards:', error);
+      setPendingBirthdayRewardIds([]);
     }
 
     try {
@@ -151,9 +219,11 @@ export default function Rewards() {
     };
 
     window.addEventListener('focus', handleUpdate);
+    window.addEventListener('pitstop_checkout_rewards_updated', handleUpdate);
 
     return () => {
       window.removeEventListener('focus', handleUpdate);
+      window.removeEventListener('pitstop_checkout_rewards_updated', handleUpdate);
     };
   }, []);
 
@@ -191,16 +261,13 @@ export default function Rewards() {
         .insert([
           {
             restaurant_id: RESTAURANT_ID,
-
             customer_id: profile.id,
             customer_name: profile.name,
             customer_code: profile.customer_id_code,
-
             reward_id: String(reward.id),
             reward_name: reward.name,
             reward_description: reward.description,
             points_required: Number(reward.points_required || 0),
-
             status: 'pending',
           },
         ]);
@@ -228,7 +295,6 @@ export default function Rewards() {
       }));
 
       const savedUser = getDemoUser();
-
       const savedCode = savedUser.customer_code || savedUser.customer_id_code;
 
       if (savedCode === profile.customer_id_code) {
@@ -253,6 +319,50 @@ export default function Rewards() {
     }
   };
 
+  const handleRedeemBirthdayReward = async (reward) => {
+    if (!canShowBirthdayReward(profile)) {
+      toast.error('Birthday reward is not available.');
+      return;
+    }
+
+    if (pendingBirthdayRewardIds.includes(String(reward.id))) {
+      toast.error('Birthday reward is already in checkout.');
+      return;
+    }
+
+    setRedeemingId(reward.id);
+
+    try {
+      const { error: checkoutRewardError } = await supabase
+        .from('customer_checkout_rewards')
+        .insert([
+          {
+            restaurant_id: RESTAURANT_ID,
+            customer_id: profile.id,
+            customer_name: profile.name,
+            customer_code: profile.customer_id_code,
+            reward_id: String(reward.id),
+            reward_name: reward.name,
+            reward_description: reward.description,
+            points_required: 0,
+            status: 'pending',
+          },
+        ]);
+
+      if (checkoutRewardError) throw checkoutRewardError;
+
+      window.dispatchEvent(new Event('pitstop_checkout_rewards_updated'));
+
+      toast.success(`${reward.name} added to checkout!`);
+      await loadRewardsData();
+    } catch (error) {
+      console.error('Could not redeem birthday reward:', error);
+      toast.error(error.message || 'Could not redeem birthday reward.');
+    } finally {
+      setRedeemingId(null);
+    }
+  };
+
   const sortedRewards = [...rewards].sort(
     (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
   );
@@ -261,9 +371,13 @@ export default function Rewards() {
     (reward) => !reward.is_birthday_reward
   );
 
-  const birthdayRewards = sortedRewards.filter(
-    (reward) => reward.is_birthday_reward
-  );
+  const birthdayRewards = canShowBirthdayReward(profile)
+    ? sortedRewards
+        .filter((reward) => reward.is_birthday_reward)
+        .filter(
+          (reward) => !pendingBirthdayRewardIds.includes(String(reward.id))
+        )
+    : [];
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
@@ -432,7 +546,7 @@ export default function Rewards() {
                 <div className="flex items-center gap-3">
                   <div className="text-3xl">🎂</div>
 
-                  <div>
+                  <div className="flex-1">
                     <h3 className="font-semibold text-sm">{reward.name}</h3>
 
                     {reward.description && (
@@ -440,6 +554,21 @@ export default function Rewards() {
                         {reward.description}
                       </p>
                     )}
+
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Available within 30 days of your birthday. If removed from checkout, it will return here.
+                    </p>
+
+                    <Button
+                      size="sm"
+                      className="mt-3 w-full h-8"
+                      disabled={redeemingId === reward.id}
+                      onClick={() => handleRedeemBirthdayReward(reward)}
+                    >
+                      {redeemingId === reward.id
+                        ? 'Adding to Checkout...'
+                        : 'Add Birthday Reward to Checkout'}
+                    </Button>
                   </div>
                 </div>
               </div>

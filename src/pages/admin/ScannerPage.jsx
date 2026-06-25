@@ -58,7 +58,7 @@ function parseCouponText(couponText) {
 function parseRewardText(rewardText) {
   if (!rewardText) return null;
 
-  const rewards = rewardText
+  return rewardText
     .split(',')
     .filter(Boolean)
     .map((rewardChunk) => {
@@ -82,8 +82,6 @@ function parseRewardText(rewardText) {
       };
     })
     .filter(Boolean);
-
-  return rewards;
 }
 
 function parseShortPitStopQR(code) {
@@ -222,9 +220,25 @@ export default function ScannerPage() {
   const navigate = useNavigate();
 
   const [scanning, setScanning] = useState(false);
+  const [scannerKey, setScannerKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [customer, setCustomer] = useState(null);
   const [updatingPoints, setUpdatingPoints] = useState(false);
+
+  const openScanner = () => {
+    setCustomer(null);
+    setScanning(false);
+
+    setTimeout(() => {
+      setScannerKey((prev) => prev + 1);
+      setScanning(true);
+    }, 150);
+  };
+
+  const closeScanner = () => {
+    setScanning(false);
+    setScannerKey((prev) => prev + 1);
+  };
 
   const loadCustomerByCode = async (customerCode) => {
     const { data, error } = await supabase
@@ -248,7 +262,7 @@ export default function ScannerPage() {
       .select('*')
       .eq('restaurant_id', RESTAURANT_ID)
       .eq('checkout_code', checkoutCode)
-      .eq('status', 'pending')
+      .in('status', ['pending', 'scanned'])
       .single();
 
     if (error || !data) {
@@ -256,7 +270,7 @@ export default function ScannerPage() {
       throw new Error('Checkout session not found');
     }
 
-    const { error: updateError } = await supabase
+    await supabase
       .from('checkout_sessions')
       .update({
         scanned_at: new Date().toISOString(),
@@ -264,10 +278,6 @@ export default function ScannerPage() {
       })
       .eq('restaurant_id', RESTAURANT_ID)
       .eq('checkout_code', checkoutCode);
-
-    if (updateError) {
-      console.error('Could not mark checkout scanned:', updateError);
-    }
 
     return {
       customerCode: data.customer_code,
@@ -290,7 +300,7 @@ export default function ScannerPage() {
   };
 
   const handleScan = async (code) => {
-    setScanning(false);
+    closeScanner();
     setLoading(true);
 
     try {
@@ -318,11 +328,6 @@ export default function ScannerPage() {
       }
 
       if (parsed.qrType === 'checkout') {
-        if (!parsed.customerCode || parsed.pointsToEarn === undefined) {
-          toast.error('Checkout QR code is missing customer or points information.');
-          return;
-        }
-
         const checkoutData = {
           ...parsed,
           scannedAt: new Date().toISOString(),
@@ -347,7 +352,6 @@ export default function ScannerPage() {
     if (!customer) return;
 
     const entered = window.prompt('How many points do you want to award?');
-
     if (!entered) return;
 
     const points = Number(entered);
@@ -408,7 +412,6 @@ export default function ScannerPage() {
     if (!customer) return;
 
     const entered = window.prompt('How many points do you want to redeem?');
-
     if (!entered) return;
 
     const points = Number(entered);
@@ -494,8 +497,8 @@ export default function ScannerPage() {
 
           <button
             type="button"
-            className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-semibold flex items-center justify-center gap-2"
-            onClick={() => setScanning(true)}
+            className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
+            onClick={openScanner}
             disabled={loading}
           >
             <ScanLine className="w-5 h-5" />
@@ -506,20 +509,13 @@ export default function ScannerPage() {
 
       {customer && (
         <div className="max-w-md mt-6 bg-card border border-border rounded-2xl p-5 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-lg font-bold text-primary">
-              {(customer.name || customer.email || '?')[0].toUpperCase()}
-            </div>
+          <h2 className="font-display font-bold text-lg">
+            {customer.name || 'Unknown Customer'}
+          </h2>
 
-            <div>
-              <h2 className="font-display font-bold text-lg">
-                {customer.name || 'Unknown Customer'}
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                {customer.customer_code}
-              </p>
-            </div>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            {customer.customer_code}
+          </p>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-muted/50 rounded-xl p-3 text-center">
@@ -555,21 +551,6 @@ export default function ScannerPage() {
             </div>
           </div>
 
-          <div className="space-y-1 text-sm">
-            <p>
-              <span className="font-semibold">Email:</span>{' '}
-              {customer.email || '—'}
-            </p>
-            <p>
-              <span className="font-semibold">Phone:</span>{' '}
-              {customer.phone || '—'}
-            </p>
-            <p>
-              <span className="font-semibold">Birthday:</span>{' '}
-              {customer.birthday || '—'}
-            </p>
-          </div>
-
           <div className="grid grid-cols-1 gap-2">
             <button
               type="button"
@@ -602,7 +583,11 @@ export default function ScannerPage() {
       )}
 
       {scanning && (
-        <QRScanner onScan={handleScan} onClose={() => setScanning(false)} />
+        <QRScanner
+          key={scannerKey}
+          onScan={handleScan}
+          onClose={closeScanner}
+        />
       )}
     </div>
   );
