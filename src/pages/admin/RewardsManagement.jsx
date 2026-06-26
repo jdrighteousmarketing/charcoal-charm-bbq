@@ -40,6 +40,20 @@ const emptyCustomerForm = {
   points_balance: 0,
 };
 
+function makeCustomerCode() {
+  return `PIT-${Date.now().toString().slice(-6)}`;
+}
+
+function getCustomerName(customers, transaction) {
+  return (
+    transaction.customer_name ||
+    customers.find((customer) => customer.customer_code === transaction.customer_code)
+      ?.name ||
+    transaction.customer_code ||
+    'Customer'
+  );
+}
+
 export default function RewardsManagement() {
   const queryClient = useQueryClient();
 
@@ -65,50 +79,40 @@ export default function RewardsManagement() {
         .eq('restaurant_id', RESTAURANT_ID)
         .order('sort_order', { ascending: true });
 
-      if (error) {
-        console.error('Could not load rewards:', error);
-        throw error;
-      }
-
+      if (error) throw error;
       return Array.isArray(data) ? data : [];
     },
   });
 
   const { data: customers = [], isLoading: customersLoading } = useQuery({
-    queryKey: ['adminCustomers', RESTAURANT_ID],
+    queryKey: ['adminRewardsCustomers', RESTAURANT_ID],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('customer_profiles')
+        .from('customers')
         .select('*')
         .eq('restaurant_id', RESTAURANT_ID)
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Could not load customers:', error);
-        throw error;
-      }
-
+      if (error) throw error;
       return Array.isArray(data) ? data : [];
     },
   });
 
   const { data: transactions = [], isLoading: transactionsLoading } = useQuery({
-    queryKey: ['adminPointTransactions', RESTAURANT_ID],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('point_transactions')
-        .select('*')
-        .eq('restaurant_id', RESTAURANT_ID)
-        .order('created_at', { ascending: false });
+  queryKey: ['adminPointTransactions', RESTAURANT_ID],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('points_transactions')
+      .select('*')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .order('created_at', { ascending: false })
+      .limit(100);
 
-      if (error) {
-        console.error('Could not load point transactions:', error);
-        throw error;
-      }
+    if (error) throw error;
 
-      return Array.isArray(data) ? data : [];
-    },
-  });
+    return Array.isArray(data) ? data : [];
+  },
+});
 
   const refreshRewards = () => {
     queryClient.invalidateQueries({ queryKey: ['adminRewards', RESTAURANT_ID] });
@@ -116,7 +120,7 @@ export default function RewardsManagement() {
   };
 
   const refreshCustomers = () => {
-    queryClient.invalidateQueries({ queryKey: ['adminCustomers', RESTAURANT_ID] });
+    queryClient.invalidateQueries({ queryKey: ['adminRewardsCustomers', RESTAURANT_ID] });
     queryClient.invalidateQueries({ queryKey: ['customerProfile'] });
   };
 
@@ -185,7 +189,7 @@ export default function RewardsManagement() {
 
   const createCustomer = useMutation({
     mutationFn: async (data) => {
-      const { error } = await supabase.from('customer_profiles').insert([data]);
+      const { error } = await supabase.from('customers').insert([data]);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -201,17 +205,17 @@ export default function RewardsManagement() {
 
   const adjustPoints = useMutation({
     mutationFn: async ({ customer, points, description }) => {
-      const newBalance = Math.max(0, (customer.points_balance || 0) + points);
-      const newTotalEarned =
+      const newBalance = Math.max(0, Number(customer.points_balance || 0) + points);
+      const newLifetimePoints =
         points > 0
-          ? (customer.total_points_earned || 0) + points
-          : customer.total_points_earned || 0;
+          ? Number(customer.lifetime_points || 0) + points
+          : Number(customer.lifetime_points || 0);
 
       const { error: customerError } = await supabase
-        .from('customer_profiles')
+        .from('customers')
         .update({
           points_balance: newBalance,
-          total_points_earned: newTotalEarned,
+          lifetime_points: newLifetimePoints,
         })
         .eq('id', customer.id)
         .eq('restaurant_id', RESTAURANT_ID);
@@ -219,15 +223,16 @@ export default function RewardsManagement() {
       if (customerError) throw customerError;
 
       const { error: transactionError } = await supabase
-        .from('point_transactions')
+        .from('points_transactions')
         .insert([
           {
             restaurant_id: RESTAURANT_ID,
-            customer_profile_id: customer.id,
-            customer_name: customer.name || 'Customer',
-            points,
-            type: 'adjustment',
-            description: description || 'Manual adjustment',
+            customer_code: customer.customer_code,
+            customer_name: customer.name || null,
+            transaction_type: points >= 0 ? 'earned' : 'redeemed',
+            points_amount: points,
+            note: description || 'Manual adjustment',
+            employee_name: 'Admin',
           },
         ]);
 
@@ -304,12 +309,16 @@ export default function RewardsManagement() {
 
     const data = {
       restaurant_id: RESTAURANT_ID,
+      customer_code: makeCustomerCode(),
       name: customerForm.name?.trim(),
       email: customerForm.email?.trim() || null,
       phone: customerForm.phone?.trim() || null,
       birthday: customerForm.birthday || null,
       points_balance: startingPoints,
-      total_points_earned: startingPoints,
+      lifetime_points: startingPoints,
+      lifetime_spend: 0,
+      visit_count: 0,
+      active: true,
     };
 
     if (!data.name) {
@@ -346,19 +355,10 @@ export default function RewardsManagement() {
       !term ||
       customer.name?.toLowerCase().includes(term) ||
       customer.email?.toLowerCase().includes(term) ||
-      customer.phone?.toLowerCase().includes(term)
+      customer.phone?.toLowerCase().includes(term) ||
+      customer.customer_code?.toLowerCase().includes(term)
     );
   });
-
-  const isBusy =
-    rewardsLoading ||
-    customersLoading ||
-    transactionsLoading ||
-    createReward.isPending ||
-    updateReward.isPending ||
-    deactivateReward.isPending ||
-    createCustomer.isPending ||
-    adjustPoints.isPending;
 
   return (
     <div>
@@ -373,11 +373,7 @@ export default function RewardsManagement() {
         </div>
 
         <div className="flex gap-2">
-          <Button
-            onClick={openCustomerDialog}
-            variant="outline"
-            className="gap-2"
-          >
+          <Button onClick={openCustomerDialog} variant="outline" className="gap-2">
             <UserPlus className="w-4 h-4" />
             Add Customer
           </Button>
@@ -393,47 +389,26 @@ export default function RewardsManagement() {
         <TabsList>
           <TabsTrigger value="rewards">Rewards ({rewards.length})</TabsTrigger>
           <TabsTrigger value="points">Customers ({customers.length})</TabsTrigger>
-          <TabsTrigger value="history">
-            History ({transactions.length})
-          </TabsTrigger>
+          <TabsTrigger value="history">History ({transactions.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="rewards">
           <div className="space-y-2">
             {rewardsLoading ? (
-              <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  Loading rewards...
-                </CardContent>
-              </Card>
+              <Card><CardContent className="py-12 text-center text-muted-foreground">Loading rewards...</CardContent></Card>
             ) : rewards.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center text-muted-foreground">
-                  <p className="text-4xl mb-3">🎁</p>
-                  <p className="font-medium">No rewards yet</p>
-                  <p className="text-sm mt-1">
-                    Add rewards like free drinks, free fries, or birthday
-                    specials.
-                  </p>
-                </CardContent>
-              </Card>
+              <Card><CardContent className="py-12 text-center text-muted-foreground">No rewards yet</CardContent></Card>
             ) : (
               sortedRewards.map((reward) => (
                 <Card key={reward.id}>
                   <CardContent className="p-3 flex items-center gap-3">
                     <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      {reward.is_birthday_reward ? (
-                        <Cake className="w-5 h-5 text-primary" />
-                      ) : (
-                        <Gift className="w-5 h-5 text-primary" />
-                      )}
+                      {reward.is_birthday_reward ? <Cake className="w-5 h-5 text-primary" /> : <Gift className="w-5 h-5 text-primary" />}
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-sm">
-                          {reward.name}
-                        </h3>
+                        <h3 className="font-semibold text-sm">{reward.name}</h3>
 
                         {reward.is_birthday_reward && (
                           <Badge className="text-[10px] bg-pink-500/10 text-pink-600">
@@ -458,21 +433,11 @@ export default function RewardsManagement() {
                     </div>
 
                     <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => openDialog(reward)}
-                      >
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openDialog(reward)}>
                         <Pencil className="w-4 h-4" />
                       </Button>
 
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => deactivateReward.mutate(reward.id)}
-                      >
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deactivateReward.mutate(reward.id)}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
@@ -502,32 +467,21 @@ export default function RewardsManagement() {
 
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {customersLoading ? (
-                  <div className="py-10 text-center text-muted-foreground">
-                    Loading customers...
-                  </div>
+                  <div className="py-10 text-center text-muted-foreground">Loading customers...</div>
                 ) : filteredCustomers.length === 0 ? (
-                  <div className="py-10 text-center text-muted-foreground">
-                    No customers yet.
-                  </div>
+                  <div className="py-10 text-center text-muted-foreground">No customers yet.</div>
                 ) : (
                   filteredCustomers.map((customer) => (
-                    <div
-                      key={customer.id}
-                      className="flex items-center justify-between p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors"
-                    >
+                    <div key={customer.id} className="flex items-center justify-between p-3 rounded-xl border border-border hover:bg-muted/50 transition-colors">
                       <div>
-                        <p className="text-sm font-medium">
-                          {customer.name || 'Unknown'}
-                        </p>
+                        <p className="text-sm font-medium">{customer.name || 'Unknown'}</p>
                         <p className="text-xs text-muted-foreground">
-                          {customer.email || customer.phone || 'No contact info'}
+                          {customer.email || customer.phone || customer.customer_code || 'No contact info'}
                         </p>
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <Badge variant="outline">
-                          {customer.points_balance || 0} pts
-                        </Badge>
+                        <Badge variant="outline">{customer.points_balance || 0} pts</Badge>
 
                         <Button
                           size="sm"
@@ -557,38 +511,39 @@ export default function RewardsManagement() {
             <CardContent>
               <div className="space-y-2 max-h-96 overflow-y-auto">
                 {transactionsLoading ? (
-                  <div className="py-10 text-center text-muted-foreground">
-                    Loading history...
-                  </div>
+                  <div className="py-10 text-center text-muted-foreground">Loading history...</div>
                 ) : transactions.length === 0 ? (
-                  <div className="py-10 text-center text-muted-foreground">
-                    No point history yet.
-                  </div>
+                  <div className="py-10 text-center text-muted-foreground">No point history yet.</div>
                 ) : (
-                  transactions.map((transaction) => (
-                    <div
-                      key={transaction.id}
-                      className="flex items-center justify-between p-3 rounded-xl border border-border"
-                    >
-                      <div>
-                        <p className="text-sm font-medium">
-                          {transaction.customer_name || 'Customer'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {transaction.description}
-                        </p>
-                      </div>
+                  transactions.map((transaction) => {
+                    const amount = Number(transaction.points_amount || 0);
+                    const customerName = getCustomerName(customers, transaction);
 
-                      <Badge
-                        variant={
-                          transaction.points >= 0 ? 'outline' : 'secondary'
-                        }
-                      >
-                        {transaction.points >= 0 ? '+' : ''}
-                        {transaction.points} pts
-                      </Badge>
-                    </div>
-                  ))
+                    return (
+                      <div key={transaction.id} className="flex items-center justify-between p-3 rounded-xl border border-border">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {customerName}
+                          </p>
+
+                          <p className="text-xs text-muted-foreground">
+                            {transaction.note || transaction.transaction_type || 'Point transaction'}
+                          </p>
+
+                          {transaction.created_at && (
+                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                              {new Date(transaction.created_at).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+
+                        <Badge variant={amount >= 0 ? 'outline' : 'secondary'}>
+                          {amount >= 0 ? '+' : ''}
+                          {amount} pts
+                        </Badge>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </CardContent>
@@ -599,98 +554,49 @@ export default function RewardsManagement() {
       <Dialog open={dialog} onOpenChange={setDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {editing ? 'Edit Reward' : 'Add Reward'}
-            </DialogTitle>
+            <DialogTitle>{editing ? 'Edit Reward' : 'Add Reward'}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
             <div>
               <Label>Name *</Label>
-              <Input
-                value={form.name || ''}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="mt-1"
-                placeholder="Free Drink"
-              />
+              <Input value={form.name || ''} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Free Drink" />
             </div>
 
             <div>
               <Label>Description</Label>
-              <Textarea
-                value={form.description || ''}
-                onChange={(e) =>
-                  setForm({ ...form, description: e.target.value })
-                }
-                className="mt-1"
-                placeholder="Redeem for one free fountain drink."
-              />
+              <Textarea value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" placeholder="Redeem for one free fountain drink." />
             </div>
 
             <div>
               <Label>Points Required *</Label>
-              <Input
-                type="number"
-                value={form.points_required || ''}
-                onChange={(e) =>
-                  setForm({ ...form, points_required: e.target.value })
-                }
-                className="mt-1"
-                placeholder="50"
-              />
+              <Input type="number" value={form.points_required || ''} onChange={(e) => setForm({ ...form, points_required: e.target.value })} className="mt-1" placeholder="50" />
             </div>
 
             <div>
               <Label>Image URL</Label>
-              <Input
-                value={form.image_url || ''}
-                onChange={(e) =>
-                  setForm({ ...form, image_url: e.target.value })
-                }
-                className="mt-1"
-              />
+              <Input value={form.image_url || ''} onChange={(e) => setForm({ ...form, image_url: e.target.value })} className="mt-1" />
             </div>
 
             <div>
               <Label>Sort Order</Label>
-              <Input
-                type="number"
-                value={form.sort_order || 0}
-                onChange={(e) =>
-                  setForm({ ...form, sort_order: e.target.value })
-                }
-                className="mt-1"
-              />
+              <Input type="number" value={form.sort_order || 0} onChange={(e) => setForm({ ...form, sort_order: e.target.value })} className="mt-1" />
             </div>
 
             <div className="flex items-center justify-between">
               <Label>Birthday Reward</Label>
-              <Switch
-                checked={form.is_birthday_reward ?? false}
-                onCheckedChange={(v) =>
-                  setForm({ ...form, is_birthday_reward: v })
-                }
-              />
+              <Switch checked={form.is_birthday_reward ?? false} onCheckedChange={(v) => setForm({ ...form, is_birthday_reward: v })} />
             </div>
 
             <div className="flex items-center justify-between">
               <Label>Active</Label>
-              <Switch
-                checked={form.is_active ?? true}
-                onCheckedChange={(v) => setForm({ ...form, is_active: v })}
-              />
+              <Switch checked={form.is_active ?? true} onCheckedChange={(v) => setForm({ ...form, is_active: v })} />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialog(false)}>
-              Cancel
-            </Button>
-
-            <Button
-              onClick={handleSave}
-              disabled={!form.name || createReward.isPending || updateReward.isPending}
-            >
+            <Button variant="outline" onClick={() => setDialog(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={!form.name || createReward.isPending || updateReward.isPending}>
               {editing ? 'Update' : 'Create'}
             </Button>
           </DialogFooter>
@@ -706,80 +612,33 @@ export default function RewardsManagement() {
           <div className="space-y-4">
             <div>
               <Label>Name *</Label>
-              <Input
-                value={customerForm.name || ''}
-                onChange={(e) =>
-                  setCustomerForm({ ...customerForm, name: e.target.value })
-                }
-                className="mt-1"
-              />
+              <Input value={customerForm.name || ''} onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })} className="mt-1" />
             </div>
 
             <div>
               <Label>Email</Label>
-              <Input
-                value={customerForm.email || ''}
-                onChange={(e) =>
-                  setCustomerForm({ ...customerForm, email: e.target.value })
-                }
-                className="mt-1"
-              />
+              <Input value={customerForm.email || ''} onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })} className="mt-1" />
             </div>
 
             <div>
               <Label>Phone</Label>
-              <Input
-                value={customerForm.phone || ''}
-                onChange={(e) =>
-                  setCustomerForm({ ...customerForm, phone: e.target.value })
-                }
-                className="mt-1"
-              />
+              <Input value={customerForm.phone || ''} onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })} className="mt-1" />
             </div>
 
             <div>
               <Label>Birthday</Label>
-              <Input
-                type="date"
-                value={customerForm.birthday || ''}
-                onChange={(e) =>
-                  setCustomerForm({
-                    ...customerForm,
-                    birthday: e.target.value,
-                  })
-                }
-                className="mt-1"
-              />
+              <Input type="date" value={customerForm.birthday || ''} onChange={(e) => setCustomerForm({ ...customerForm, birthday: e.target.value })} className="mt-1" />
             </div>
 
             <div>
               <Label>Starting Points</Label>
-              <Input
-                type="number"
-                value={customerForm.points_balance || ''}
-                onChange={(e) =>
-                  setCustomerForm({
-                    ...customerForm,
-                    points_balance: e.target.value,
-                  })
-                }
-                className="mt-1"
-                placeholder="0"
-              />
+              <Input type="number" value={customerForm.points_balance || ''} onChange={(e) => setCustomerForm({ ...customerForm, points_balance: e.target.value })} className="mt-1" placeholder="0" />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCustomerDialog(false)}>
-              Cancel
-            </Button>
-
-            <Button
-              onClick={handleSaveCustomer}
-              disabled={!customerForm.name || createCustomer.isPending}
-            >
-              Create Customer
-            </Button>
+            <Button variant="outline" onClick={() => setCustomerDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveCustomer} disabled={!customerForm.name || createCustomer.isPending}>Create Customer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -799,37 +658,18 @@ export default function RewardsManagement() {
           <div className="space-y-4">
             <div>
               <Label>Points</Label>
-              <Input
-                type="number"
-                value={adjustAmount}
-                onChange={(e) => setAdjustAmount(e.target.value)}
-                className="mt-1"
-                placeholder="Example: 50 or -25"
-              />
+              <Input type="number" value={adjustAmount} onChange={(e) => setAdjustAmount(e.target.value)} className="mt-1" placeholder="Example: 50 or -25" />
             </div>
 
             <div>
               <Label>Reason</Label>
-              <Input
-                value={adjustDesc}
-                onChange={(e) => setAdjustDesc(e.target.value)}
-                className="mt-1"
-                placeholder="Manual adjustment"
-              />
+              <Input value={adjustDesc} onChange={(e) => setAdjustDesc(e.target.value)} className="mt-1" placeholder="Manual adjustment" />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAdjustDialog(false)}>
-              Cancel
-            </Button>
-
-            <Button
-              onClick={applyPointAdjustment}
-              disabled={!adjustAmount || adjustPoints.isPending}
-            >
-              Apply
-            </Button>
+            <Button variant="outline" onClick={() => setAdjustDialog(false)}>Cancel</Button>
+            <Button onClick={applyPointAdjustment} disabled={!adjustAmount || adjustPoints.isPending}>Apply</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

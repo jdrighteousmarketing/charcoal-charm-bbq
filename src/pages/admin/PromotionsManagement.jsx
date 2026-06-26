@@ -45,6 +45,11 @@ function toDateInput(value) {
   return String(value).slice(0, 10);
 }
 
+function normalizeDiscountType(type) {
+  if (!type || type === 'points') return 'percentage';
+  return type;
+}
+
 export default function PromotionsManagement() {
   const queryClient = useQueryClient();
   const [dialog, setDialog] = useState(false);
@@ -136,7 +141,7 @@ export default function PromotionsManagement() {
             title: promo.title || '',
             description: promo.description || '',
             promo_code: promo.promo_code || '',
-            discount_type: promo.discount_type || 'percentage',
+            discount_type: normalizeDiscountType(promo.discount_type),
             discount_value:
               promo.discount_value === null || promo.discount_value === undefined
                 ? ''
@@ -163,7 +168,7 @@ export default function PromotionsManagement() {
       title: form.title.trim(),
       description: form.description?.trim() || null,
       promo_code: form.promo_code?.trim() || null,
-      discount_type: form.discount_type || 'percentage',
+      discount_type: normalizeDiscountType(form.discount_type),
       discount_value: Number.isFinite(discountValue) ? discountValue : null,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
@@ -324,7 +329,7 @@ export default function PromotionsManagement() {
             <div>
               <Label>Discount Type</Label>
               <Select
-                value={form.discount_type || 'percentage'}
+                value={normalizeDiscountType(form.discount_type)}
                 onValueChange={(v) => setForm({ ...form, discount_type: v })}
               >
                 <SelectTrigger className="mt-1">
@@ -335,7 +340,6 @@ export default function PromotionsManagement() {
                   <SelectItem value="fixed">Fixed Amount Off</SelectItem>
                   <SelectItem value="bogo">Buy One Get One</SelectItem>
                   <SelectItem value="free_item">Free Item</SelectItem>
-                  <SelectItem value="points">Bonus Points</SelectItem>
                 </SelectContent>
               </Select>
             </div>
