@@ -1,4 +1,6 @@
-import { Plus } from 'lucide-react';
+import { useState } from 'react';
+import { Check, Plus } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/hooks/useCart';
 import { useCustomerProfile } from '@/hooks/useCustomerProfile';
@@ -8,39 +10,104 @@ export default function AddToCartButton({ menuItem }) {
   const { data: customerProfile, isLoading } = useCustomerProfile();
   const { addToCart, isAdding } = useCart(customerProfile?.id);
 
+  const [added, setAdded] = useState(false);
+
   if (isLoading || !customerProfile) {
     return null;
   }
 
   const handleAddToCart = () => {
-    console.log('Add to cart clicked:', menuItem.name);
+    if (added || isAdding) return;
+
     addToCart(menuItem, {
       onSuccess: () => {
-        toast.success(`${menuItem.name} added to cart!`);
+        setAdded(true);
+
+        toast.success(`${menuItem.display_name || menuItem.name} added to cart!`);
+
+        setTimeout(() => {
+          setAdded(false);
+        }, 1000);
       },
       onError: (error) => {
-        console.error('Failed to add to cart:', error);
+        console.error(error);
         toast.error('Failed to add item');
-      }
+      },
     });
   };
 
-  const isDisabled = menuItem.is_sold_out || !menuItem.is_available;
+  const isDisabled = menuItem.is_sold_out || menuItem.is_available === false;
 
   return (
-    <Button
-      size="sm"
-      variant="default"
-      className="w-full gap-1 text-xs h-8"
-      onClick={handleAddToCart}
-      disabled={isDisabled || isAdding}
+    <motion.div
+      className="w-full"
+      animate={
+        added
+          ? {
+              scale: [1, 1.06, 1],
+              y: [0, -2, 0],
+            }
+          : {
+              scale: 1,
+              y: 0,
+            }
+      }
+      transition={{ duration: 0.35 }}
     >
-      {isAdding ? (
-        <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-      ) : (
-        <Plus className="w-3 h-3" />
-      )}
-      {isDisabled ? 'Unavailable' : 'Add to Cart'}
-    </Button>
+      <Button
+        size="sm"
+        variant={added ? 'secondary' : 'default'}
+        className={`relative w-full h-9 gap-2 overflow-hidden transition-all duration-300 ${
+          added ? 'shadow-[0_0_22px_rgba(34,197,94,0.55)]' : ''
+        }`}
+        onClick={handleAddToCart}
+        disabled={isDisabled || isAdding}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          {isAdding ? (
+            <motion.span
+              key="loading"
+              className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
+              initial={{ opacity: 0, scale: 0.7 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.7 }}
+            />
+          ) : added ? (
+            <motion.span
+              key="added"
+              className="flex items-center gap-2"
+              initial={{ opacity: 0, y: 8, scale: 0.85 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.85 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Check className="w-4 h-4" />
+              Added!
+            </motion.span>
+          ) : (
+            <motion.span
+              key="normal"
+              className="flex items-center gap-2"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Plus className="w-4 h-4" />
+              {isDisabled ? 'Unavailable' : 'Add to Cart'}
+            </motion.span>
+          )}
+        </AnimatePresence>
+
+        {added && (
+          <motion.span
+            className="absolute inset-0 bg-emerald-400/20"
+            initial={{ x: '-100%' }}
+            animate={{ x: '100%' }}
+            transition={{ duration: 0.45 }}
+          />
+        )}
+      </Button>
+    </motion.div>
   );
 }

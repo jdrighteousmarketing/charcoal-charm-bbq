@@ -7,6 +7,13 @@ function notifyCartUpdated() {
   window.dispatchEvent(new Event(CART_UPDATED_EVENT));
 }
 
+function getCartItemKey(menuItem) {
+  const itemId = menuItem?.id || menuItem?.menu_item_id;
+  const sizeId = menuItem?.selected_size_id || 'regular';
+
+  return `${itemId}__${sizeId}`;
+}
+
 function getStoredCart(customerProfileId) {
   if (!customerProfileId) return null;
 
@@ -54,7 +61,9 @@ function getBusinessSettings() {
 
     return {
       tax_rate: Number(parsed.tax_rate ?? parsed.taxRate ?? 6),
-      points_per_dollar: Number(parsed.points_per_dollar ?? parsed.pointsPerDollar ?? 1),
+      points_per_dollar: Number(
+        parsed.points_per_dollar ?? parsed.pointsPerDollar ?? 1
+      ),
     };
   } catch {
     return {
@@ -134,16 +143,17 @@ export function useCart(customerProfileId) {
     try {
       const latestCart = getStoredCart(customerProfileId);
       const currentItems = latestCart?.items || cart?.items || [];
+      const cartItemKey = getCartItemKey(menuItem);
 
       const existingItem = currentItems.find(
-        (item) => item.menu_item_id === menuItem.id
+        (item) => item.cart_item_key === cartItemKey
       );
 
       let newItems;
 
       if (existingItem) {
         newItems = currentItems.map((item) =>
-          item.menu_item_id === menuItem.id
+          item.cart_item_key === cartItemKey
             ? { ...item, quantity: Number(item.quantity || 0) + 1 }
             : item
         );
@@ -151,8 +161,16 @@ export function useCart(customerProfileId) {
         newItems = [
           ...currentItems,
           {
+            cart_item_key: cartItemKey,
             menu_item_id: menuItem.id,
             name: menuItem.name,
+            display_name:
+              menuItem.display_name ||
+              (menuItem.selected_size
+                ? `${menuItem.selected_size} ${menuItem.name}`
+                : menuItem.name),
+            selected_size: menuItem.selected_size || null,
+            selected_size_id: menuItem.selected_size_id || null,
             price: Number(menuItem.price || 0),
             quantity: 1,
           },
@@ -184,13 +202,14 @@ export function useCart(customerProfileId) {
     }
   };
 
-  const removeFromCart = (menuItemId) => {
+  const removeFromCart = (cartItemKeyOrMenuItemId) => {
     const latestCart = getStoredCart(customerProfileId) || cart;
     if (!latestCart) return;
 
-    const newItems = latestCart.items.filter(
-      (item) => item.menu_item_id !== menuItemId
-    );
+    const newItems = latestCart.items.filter((item) => {
+      const itemKey = item.cart_item_key || `${item.menu_item_id}__regular`;
+      return itemKey !== cartItemKeyOrMenuItemId && item.menu_item_id !== cartItemKeyOrMenuItemId;
+    });
 
     if (newItems.length === 0) {
       updateCart(null);
@@ -207,18 +226,24 @@ export function useCart(customerProfileId) {
     updateCart(nextCart);
   };
 
-  const updateQuantity = ({ menuItemId, quantity }) => {
+  const updateQuantity = ({ menuItemId, cartItemKey, quantity }) => {
     const latestCart = getStoredCart(customerProfileId) || cart;
     if (!latestCart) return;
 
+    const targetKey = cartItemKey || menuItemId;
+
     if (quantity <= 0) {
-      removeFromCart(menuItemId);
+      removeFromCart(targetKey);
       return;
     }
 
-    const newItems = latestCart.items.map((item) =>
-      item.menu_item_id === menuItemId ? { ...item, quantity } : item
-    );
+    const newItems = latestCart.items.map((item) => {
+      const itemKey = item.cart_item_key || `${item.menu_item_id}__regular`;
+
+      return itemKey === targetKey || item.menu_item_id === targetKey
+        ? { ...item, quantity }
+        : item;
+    });
 
     const nextCart = {
       ...latestCart,

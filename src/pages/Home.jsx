@@ -2,12 +2,11 @@ import { useEffect, useState } from 'react';
 import HomeHero from '@/components/customer/HomeHero';
 import QuickLinks from '@/components/customer/QuickLinks';
 import { Link } from 'react-router-dom';
-import { Gift, ChevronRight, Flame, Plus } from 'lucide-react';
+import { Gift, ChevronRight, Flame } from 'lucide-react';
 import { motion } from 'framer-motion';
 import PullToRefresh from '@/components/customer/PullToRefresh';
 import { useCustomerProfile } from '@/hooks/useCustomerProfile';
-import { useCart } from '@/hooks/useCart';
-import { toast } from 'sonner';
+import AddToCartButton from '@/components/customer/AddToCartButton';
 import { supabase } from '@/lib/supabaseClient';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
@@ -53,7 +52,6 @@ function readJSON(key, fallback) {
 
 export default function Home() {
   const { data: customerProfile } = useCustomerProfile();
-  const { addToCart } = useCart(customerProfile?.id);
 
   const [savedUser, setSavedUser] = useState(() =>
     readJSON('pitstop_demo_user', {})
@@ -147,13 +145,6 @@ export default function Home() {
       savedUser.customer_id_code ||
       customerProfile?.customer_id_code ||
       'PIT-12345',
-  };
-
-  const handleAddFeaturedToCart = (item) => {
-    addToCart(item, {
-      onSuccess: () => toast.success(`${item.name} added to cart!`),
-      onError: () => toast.error('Could not add item to cart.'),
-    });
   };
 
   const handleRefresh = async () => {
@@ -267,14 +258,9 @@ export default function Home() {
                       ${Number(item.price || 0).toFixed(2)}
                     </p>
 
-                    <button
-                      type="button"
-                      onClick={() => handleAddFeaturedToCart(item)}
-                      className="mt-3 w-full h-10 rounded-xl bg-primary text-primary-foreground font-medium flex items-center justify-center gap-2"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add to Cart
-                    </button>
+                    <div className="mt-3">
+                      <AddToCartButton menuItem={item} />
+                    </div>
                   </div>
                 </div>
               ))}

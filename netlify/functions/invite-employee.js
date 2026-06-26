@@ -29,7 +29,7 @@ exports.handler = async (event) => {
 
     const { data: inviteData, error: inviteError } =
       await supabase.auth.admin.inviteUserByEmail(normalizedEmail, {
-  redirectTo: 'https://cosmic-tapioca-616547.netlify.app/employee-login',
+  redirectTo: 'https://pit-stop-mobile.netlify.app/employee-login',
   data: {
     full_name: fullName || '',
     role: 'employee',

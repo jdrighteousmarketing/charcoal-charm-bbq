@@ -21,11 +21,14 @@ function safeJsonParse(value, fallback) {
 
 function getDiscountLabel(coupon) {
   if (!coupon) return 'Special Offer';
-  if (coupon.discountType === 'percentage') return `${coupon.discountValue || 0}% Off`;
-  if (coupon.discountType === 'fixed') return `$${coupon.discountValue || 0} Off`;
-  if (coupon.discountType === 'bogo') return 'BOGO';
-  if (coupon.discountType === 'points') return `${coupon.discountValue || 2}X Points`;
-  if (coupon.discountType === 'free_item') return 'Free Item';
+  const discountType = coupon.discountType || coupon.discount_type;
+  const discountValue = coupon.discountValue ?? coupon.discount_value;
+
+  if (discountType === 'percentage') return `${discountValue || 0}% Off`;
+  if (discountType === 'fixed') return `$${discountValue || 0} Off`;
+  if (discountType === 'bogo') return 'BOGO';
+  if (discountType === 'points') return `${discountValue || 2}X Points`;
+  if (discountType === 'free_item') return 'Free Item';
   return 'Special Offer';
 }
 
@@ -47,8 +50,14 @@ export default function CheckoutReview() {
   }, [location.state]);
 
   const items = checkoutData.items || [];
-  const claimedCoupon = checkoutData.claimedCoupon || null;
-  const claimedRewards = normalizeRewards(checkoutData.claimedReward);
+  const claimedCoupon =
+    checkoutData.claimedCoupon || checkoutData.claimed_coupon || null;
+
+  const claimedRewards = normalizeRewards(
+    checkoutData.claimedReward ||
+      checkoutData.claimedRewards ||
+      checkoutData.claimed_rewards
+  );
 
   const handleCompleteAward = async () => {
     setAwarding(true);
@@ -96,6 +105,7 @@ export default function CheckoutReview() {
       const newLifetimeSpend = Number(customer.lifetime_spend || 0) + orderTotal;
       const newVisitCount = Number(customer.visit_count || 0) + 1;
       const orderNumber = `ORD-${Date.now()}`;
+      const completedAt = new Date().toISOString();
 
       const { error: customerUpdateError } = await supabase
         .from('customers')
@@ -175,34 +185,59 @@ export default function CheckoutReview() {
         if (pointsError) throw pointsError;
       }
 
-      if (claimedCoupon?.checkoutDealId) {
+      const checkoutDealId =
+        claimedCoupon?.checkoutDealId ||
+        claimedCoupon?.checkout_deal_id ||
+        claimedCoupon?.id;
+
+      if (checkoutDealId) {
         const { error: couponError } = await supabase
           .from('customer_checkout_deals')
           .update({
             status: 'redeemed',
-            redeemed_at: new Date().toISOString(),
+            redeemed_at: completedAt,
             notes: `Redeemed during order ${orderNumber}`,
           })
-          .eq('id', claimedCoupon.checkoutDealId)
+          .eq('id', checkoutDealId)
           .eq('restaurant_id', RESTAURANT_ID)
           .eq('status', 'pending');
 
         if (couponError) throw couponError;
       }
 
+      // Fallback: if the checkout data did not include the exact coupon id,
+      // clear any pending checkout coupon for this customer so it disappears from the cart.
+      if (!checkoutDealId && claimedCoupon) {
+        const { error: pendingCouponError } = await supabase
+          .from('customer_checkout_deals')
+          .update({
+            status: 'redeemed',
+            redeemed_at: completedAt,
+            notes: `Redeemed during order ${orderNumber}`,
+          })
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('customer_code', customerCode)
+          .eq('status', 'pending');
+
+        if (pendingCouponError) throw pendingCouponError;
+      }
+
       if (claimedRewards.length > 0) {
         const rewardIds = claimedRewards
-          .map((reward) => reward.checkoutRewardId)
+          .map(
+            (reward) =>
+              reward.checkoutRewardId ||
+              reward.checkout_reward_id ||
+              reward.id
+          )
           .filter(Boolean);
 
         if (rewardIds.length > 0) {
-          const redeemedAt = new Date().toISOString();
-
           const { error: rewardsError } = await supabase
             .from('customer_checkout_rewards')
             .update({
               status: 'redeemed',
-              redeemed_at: redeemedAt,
+              redeemed_at: completedAt,
               notes: `Redeemed during order ${orderNumber}`,
             })
             .in('id', rewardIds)
@@ -219,7 +254,7 @@ export default function CheckoutReview() {
             const { error: birthdayError } = await supabase
               .from('customers')
               .update({
-                birthday_reward_redeemed_at: redeemedAt,
+                birthday_reward_redeemed_at: completedAt,
               })
               .eq('restaurant_id', RESTAURANT_ID)
               .eq('customer_code', customerCode);
@@ -229,12 +264,44 @@ export default function CheckoutReview() {
         }
       }
 
-      if (checkoutData.checkoutCode) {
-        await supabase
-          .from('checkout_sessions')
-          .update({ status: 'completed' })
+      // Fallback: if the checkout data had rewards but did not include exact ids,
+      // clear any pending checkout rewards for this customer so they disappear from the cart.
+      if (
+        claimedRewards.length > 0 &&
+        claimedRewards.every(
+          (reward) =>
+            !reward.checkoutRewardId &&
+            !reward.checkout_reward_id &&
+            !reward.id
+        )
+      ) {
+        const { error: pendingRewardsError } = await supabase
+          .from('customer_checkout_rewards')
+          .update({
+            status: 'redeemed',
+            redeemed_at: completedAt,
+            notes: `Redeemed during order ${orderNumber}`,
+          })
           .eq('restaurant_id', RESTAURANT_ID)
-          .eq('checkout_code', checkoutData.checkoutCode);
+          .eq('customer_code', customerCode)
+          .eq('status', 'pending');
+
+        if (pendingRewardsError) throw pendingRewardsError;
+      }
+
+      if (checkoutData.checkoutCode || checkoutData.checkout_code) {
+        const { error: checkoutSessionError } = await supabase
+          .from('checkout_sessions')
+          .update({
+            status: 'completed',
+            completed_at: completedAt,
+            order_number: orderNumber,
+            points_awarded: actualPointsAwarded,
+          })
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('checkout_code', checkoutData.checkoutCode || checkoutData.checkout_code);
+
+        if (checkoutSessionError) throw checkoutSessionError;
       }
 
       const savedUser = safeJsonParse(localStorage.getItem('pitstop_demo_user'), {});
@@ -267,7 +334,7 @@ export default function CheckoutReview() {
       navigate('/admin/scanner', { replace: true });
     } catch (error) {
       console.error(error);
-      toast.error('Failed to complete checkout.');
+      toast.error(error.message || 'Failed to complete checkout.');
     } finally {
       setAwarding(false);
     }
@@ -326,7 +393,7 @@ export default function CheckoutReview() {
             </div>
 
             <p className="font-bold text-base">
-              {claimedCoupon.title || 'Promotion'}
+              {claimedCoupon.title || claimedCoupon.promotion_title || 'Promotion'}
             </p>
 
             <p className="text-sm">
@@ -339,7 +406,7 @@ export default function CheckoutReview() {
         {claimedRewards.length > 0 &&
           claimedRewards.map((reward, index) => (
             <div
-              key={reward.checkoutRewardId || index}
+              key={reward.checkoutRewardId || reward.checkout_reward_id || reward.id || index}
               className="rounded-xl border-2 border-emerald-500/50 bg-emerald-500/10 p-4 space-y-2"
             >
               <div className="flex items-center gap-2">
@@ -350,12 +417,12 @@ export default function CheckoutReview() {
               </div>
 
               <p className="font-bold text-base">
-                {reward.rewardName || 'Reward'}
+                {reward.rewardName || reward.reward_name || 'Reward'}
               </p>
 
               <p className="text-sm">
                 <span className="font-semibold">Points Cost:</span>{' '}
-                {reward.pointsRequired || 0}
+                {reward.pointsRequired || reward.points_required || 0}
               </p>
             </div>
           ))}

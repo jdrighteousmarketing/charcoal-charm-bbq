@@ -54,6 +54,38 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
+
+const createBlankSize = () => ({
+  id: crypto.randomUUID(),
+  name: '',
+  price: '',
+});
+
+const normalizeSizes = (sizes) => {
+  if (!Array.isArray(sizes)) return [];
+
+  return sizes.map((size) => ({
+    id: size.id || crypto.randomUUID(),
+    name: size.name || '',
+    price:
+      size.price === 0 || size.price
+        ? String(size.price)
+        : '',
+  }));
+};
+
+const cleanSizesForSave = (sizes) => {
+  if (!Array.isArray(sizes)) return [];
+
+  return sizes
+    .map((size) => ({
+      id: size.id || crypto.randomUUID(),
+      name: String(size.name || '').trim(),
+      price: parseFloat(size.price) || 0,
+    }))
+    .filter((size) => size.name && size.price > 0);
+};
+
 function SortableCategoryCard({
   cat,
   catItems,
@@ -102,9 +134,7 @@ function SortableCategoryCard({
               <h3 className="font-semibold text-sm">{cat.name}</h3>
 
               {cat.description && (
-                <p className="text-xs text-muted-foreground">
-                  {cat.description}
-                </p>
+                <p className="text-xs text-muted-foreground">{cat.description}</p>
               )}
 
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -134,6 +164,7 @@ function SortableCategoryCard({
     </div>
   );
 }
+
 export default function MenuManagement() {
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
@@ -151,22 +182,12 @@ export default function MenuManagement() {
   const imageInputRef = useRef(null);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 180,
-        tolerance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
-    const loadMenuData = async () => {
+
+  const loadMenuData = async () => {
     setLoading(true);
 
     try {
@@ -202,14 +223,25 @@ export default function MenuManagement() {
     loadMenuData();
   }, []);
 
-  const sortedItems = [...items].sort(
-    (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
-  );
+  const sortedItems = [...items].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const sortedCategories = [...categories].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
-  const sortedCategories = [...categories].sort(
-    (a, b) => (a.sort_order || 0) - (b.sort_order || 0)
-  );
-    const handleCategoryDragEnd = async (event) => {
+  const getDisplayPrice = (item) => {
+    if (item.has_size_options && Array.isArray(item.sizes) && item.sizes.length > 0) {
+      const prices = item.sizes
+        .map((size) => Number(size.price || 0))
+        .filter((price) => price > 0);
+
+      if (prices.length === 0) return '$0.00';
+
+      const lowest = Math.min(...prices);
+      return `From $${lowest.toFixed(2)}`;
+    }
+
+    return `$${Number(item.price || 0).toFixed(2)}`;
+  };
+
+  const handleCategoryDragEnd = async (event) => {
     const { active, over } = event;
 
     if (!over || active.id === over.id) return;
@@ -219,12 +251,10 @@ export default function MenuManagement() {
 
     if (oldIndex === -1 || newIndex === -1) return;
 
-    const reordered = arrayMove(sortedCategories, oldIndex, newIndex).map(
-      (cat, index) => ({
-        ...cat,
-        sort_order: index + 1,
-      })
-    );
+    const reordered = arrayMove(sortedCategories, oldIndex, newIndex).map((cat, index) => ({
+      ...cat,
+      sort_order: index + 1,
+    }));
 
     setCategories(reordered);
 
@@ -249,9 +279,18 @@ export default function MenuManagement() {
 
   const openItemDialog = (item = null) => {
     setEditingItem(item);
+
     setItemForm(
       item
-        ? { ...item }
+        ? {
+            ...item,
+            price:
+              item.price === 0 || item.price
+                ? String(item.price)
+                : '',
+            has_size_options: item.has_size_options ?? false,
+            sizes: normalizeSizes(item.sizes),
+          }
         : {
             name: '',
             description: '',
@@ -262,8 +301,11 @@ export default function MenuManagement() {
             is_sold_out: false,
             is_featured: false,
             sort_order: 0,
+            has_size_options: false,
+            sizes: [],
           }
     );
+
     setItemDialog(true);
   };
 
@@ -281,7 +323,8 @@ export default function MenuManagement() {
     );
     setCatDialog(true);
   };
-    const handleSaveCat = async () => {
+
+  const handleSaveCat = async () => {
     const data = {
       restaurant_id: RESTAURANT_ID,
       name: catForm.name || '',
@@ -299,13 +342,11 @@ export default function MenuManagement() {
           .eq('restaurant_id', RESTAURANT_ID);
 
         if (error) throw error;
-
         toast.success('Category updated!');
       } else {
         const { error } = await supabase.from('menu_categories').insert(data);
 
         if (error) throw error;
-
         toast.success('Category created!');
       }
 
@@ -320,17 +361,31 @@ export default function MenuManagement() {
   };
 
   const handleSaveItem = async () => {
+    const cleanedSizes = cleanSizesForSave(itemForm.sizes);
+    const hasSizeOptions = itemForm.has_size_options ?? false;
+
+    if (hasSizeOptions && cleanedSizes.length === 0) {
+      toast.error('Add at least one size with a name and price.');
+      return;
+    }
+
+    const fallbackPrice = hasSizeOptions
+      ? cleanedSizes[0]?.price || 0
+      : parseFloat(itemForm.price) || 0;
+
     const data = {
       restaurant_id: RESTAURANT_ID,
       name: itemForm.name || '',
       description: itemForm.description || '',
-      price: parseFloat(itemForm.price) || 0,
+      price: fallbackPrice,
       image_url: itemForm.image_url || '',
       category_id: itemForm.category_id || null,
       is_available: itemForm.is_available ?? true,
       is_sold_out: itemForm.is_sold_out ?? false,
       is_featured: itemForm.is_featured ?? false,
       sort_order: parseInt(itemForm.sort_order, 10) || 0,
+      has_size_options: hasSizeOptions,
+      sizes: hasSizeOptions ? cleanedSizes : [],
     };
 
     try {
@@ -342,13 +397,11 @@ export default function MenuManagement() {
           .eq('restaurant_id', RESTAURANT_ID);
 
         if (error) throw error;
-
         toast.success('Item updated!');
       } else {
         const { error } = await supabase.from('menu_items').insert(data);
 
         if (error) throw error;
-
         toast.success('Item created!');
       }
 
@@ -361,7 +414,8 @@ export default function MenuManagement() {
       toast.error(error.message || 'Failed to save item');
     }
   };
-    const deleteItem = async (id) => {
+
+  const deleteItem = async (id) => {
     try {
       const { error } = await supabase
         .from('menu_items')
@@ -442,7 +496,8 @@ export default function MenuManagement() {
   const getCategoryName = (id) => {
     return categories.find((c) => c.id === id)?.name || 'Uncategorized';
   };
-    const readImageAsDataUrl = (file) => {
+
+  const readImageAsDataUrl = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
 
@@ -476,7 +531,43 @@ export default function MenuManagement() {
       setImageUploading(false);
     }
   };
-    if (loading) {
+
+  const addSizeRow = () => {
+    setItemForm((prev) => ({
+      ...prev,
+      sizes: [...(prev.sizes || []), createBlankSize()],
+    }));
+  };
+
+  const updateSizeRow = (id, field, value) => {
+    setItemForm((prev) => ({
+      ...prev,
+      sizes: (prev.sizes || []).map((size) =>
+        size.id === id ? { ...size, [field]: value } : size
+      ),
+    }));
+  };
+
+  const removeSizeRow = (id) => {
+    setItemForm((prev) => ({
+      ...prev,
+      sizes: (prev.sizes || []).filter((size) => size.id !== id),
+    }));
+  };
+
+  const handleToggleSizeOptions = (checked) => {
+    setItemForm((prev) => ({
+      ...prev,
+      has_size_options: checked,
+      sizes: checked
+        ? prev.sizes?.length
+          ? prev.sizes
+          : [createBlankSize()]
+        : [],
+    }));
+  };
+
+  if (loading) {
     return (
       <div className="min-h-[50vh] flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
@@ -490,7 +581,7 @@ export default function MenuManagement() {
         <div>
           <h1 className="text-2xl font-display font-bold">Menu Management</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage your categories, prices, availability, and featured items.
+            Manage your categories, prices, size options, availability, and featured items.
           </p>
         </div>
 
@@ -512,7 +603,8 @@ export default function MenuManagement() {
           <TabsTrigger value="categories">Categories ({categories.length})</TabsTrigger>
           <TabsTrigger value="items">Menu Items ({items.length})</TabsTrigger>
         </TabsList>
-                <TabsContent value="categories">
+
+        <TabsContent value="categories">
           <div className="space-y-2">
             {categories.length === 0 ? (
               <Card>
@@ -531,10 +623,7 @@ export default function MenuManagement() {
                   strategy={verticalListSortingStrategy}
                 >
                   {sortedCategories.map((cat) => {
-                    const catItems = sortedItems.filter(
-                      (i) => i.category_id === cat.id
-                    );
-
+                    const catItems = sortedItems.filter((i) => i.category_id === cat.id);
                     const isExpanded = expandedCat === cat.id;
 
                     return (
@@ -543,9 +632,7 @@ export default function MenuManagement() {
                         cat={cat}
                         catItems={catItems}
                         isExpanded={isExpanded}
-                        onToggle={() =>
-                          setExpandedCat(isExpanded ? null : cat.id)
-                        }
+                        onToggle={() => setExpandedCat(isExpanded ? null : cat.id)}
                         onEdit={() => openCatDialog(cat)}
                         onDelete={() => deleteCat(cat.id)}
                       >
@@ -567,6 +654,8 @@ export default function MenuManagement() {
                                   is_sold_out: false,
                                   is_featured: false,
                                   sort_order: 0,
+                                  has_size_options: false,
+                                  sizes: [],
                                 });
                                 setItemDialog(true);
                               }}
@@ -591,17 +680,21 @@ export default function MenuManagement() {
                                   )}
 
                                   <div className="flex-1 min-w-0">
-                                    <h3 className="font-semibold text-sm">
-                                      {item.name}
-                                    </h3>
+                                    <h3 className="font-semibold text-sm">{item.name}</h3>
 
                                     <p className="text-xs text-muted-foreground truncate">
                                       {item.description || 'No description'}
                                     </p>
 
                                     <p className="text-sm font-bold text-primary mt-0.5">
-                                      ${Number(item.price || 0).toFixed(2)}
+                                      {getDisplayPrice(item)}
                                     </p>
+
+                                    {item.has_size_options && (
+                                      <p className="text-[11px] text-muted-foreground">
+                                        Size options enabled
+                                      </p>
+                                    )}
                                   </div>
 
                                   <Button
@@ -625,7 +718,8 @@ export default function MenuManagement() {
             )}
           </div>
         </TabsContent>
-                <TabsContent value="items">
+
+        <TabsContent value="items">
           <div className="space-y-2">
             {items.length === 0 ? (
               <Card>
@@ -657,6 +751,12 @@ export default function MenuManagement() {
                           {getCategoryName(item.category_id)}
                         </Badge>
 
+                        {item.has_size_options && (
+                          <Badge variant="outline" className="text-[10px]">
+                            Sizes
+                          </Badge>
+                        )}
+
                         {item.is_featured && (
                           <Badge className="text-[10px] bg-primary/10 text-primary">
                             Featured
@@ -681,7 +781,7 @@ export default function MenuManagement() {
                       </p>
 
                       <p className="text-sm font-bold text-primary mt-0.5">
-                        ${Number(item.price || 0).toFixed(2)}
+                        {getDisplayPrice(item)}
                       </p>
                     </div>
 
@@ -694,9 +794,7 @@ export default function MenuManagement() {
                       >
                         <AlertTriangle
                           className={`w-4 h-4 ${
-                            item.is_sold_out
-                              ? 'text-destructive'
-                              : 'text-muted-foreground'
+                            item.is_sold_out ? 'text-destructive' : 'text-muted-foreground'
                           }`}
                         />
                       </Button>
@@ -739,7 +837,8 @@ export default function MenuManagement() {
           </div>
         </TabsContent>
       </Tabs>
-            <Dialog open={itemDialog} onOpenChange={setItemDialog}>
+
+      <Dialog open={itemDialog} onOpenChange={setItemDialog}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit Item' : 'Add Item'}</DialogTitle>
@@ -750,9 +849,7 @@ export default function MenuManagement() {
               <Label>Name *</Label>
               <Input
                 value={itemForm.name || ''}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, name: e.target.value })
-                }
+                onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
                 className="mt-1"
               />
             </div>
@@ -761,25 +858,91 @@ export default function MenuManagement() {
               <Label>Description</Label>
               <Textarea
                 value={itemForm.description || ''}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, description: e.target.value })
-                }
+                onChange={(e) => setItemForm({ ...itemForm, description: e.target.value })}
                 className="mt-1"
               />
             </div>
 
-            <div>
-              <Label>Price *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={itemForm.price || ''}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, price: e.target.value })
-                }
-                className="mt-1"
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div>
+                <Label>Has Size Options</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Use this for drinks, appetizers, sides, or anything with custom sizes.
+                </p>
+              </div>
+
+              <Switch
+                checked={itemForm.has_size_options ?? false}
+                onCheckedChange={handleToggleSizeOptions}
               />
             </div>
+
+            {!itemForm.has_size_options && (
+              <div>
+                <Label>Price *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={itemForm.price || ''}
+                  onChange={(e) => setItemForm({ ...itemForm, price: e.target.value })}
+                  className="mt-1"
+                />
+              </div>
+            )}
+
+            {itemForm.has_size_options && (
+              <div className="rounded-lg border border-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Size Options *</Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Size names and prices are entered by the owner, not hardcoded.
+                    </p>
+                  </div>
+
+                  <Button type="button" size="sm" variant="outline" onClick={addSizeRow}>
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add
+                  </Button>
+                </div>
+
+                {(itemForm.sizes || []).map((size) => (
+                  <div key={size.id} className="grid grid-cols-[1fr_100px_36px] gap-2 items-end">
+                    <div>
+                      <Label className="text-xs">Size Name</Label>
+                      <Input
+                        value={size.name || ''}
+                        placeholder="Small, Large, 12 oz..."
+                        onChange={(e) => updateSizeRow(size.id, 'name', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+
+                    <div>
+                      <Label className="text-xs">Price</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={size.price || ''}
+                        placeholder="0.00"
+                        onChange={(e) => updateSizeRow(size.id, 'price', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 text-destructive"
+                      onClick={() => removeSizeRow(size.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div>
               <Label>Image</Label>
@@ -795,9 +958,7 @@ export default function MenuManagement() {
 
                     <button
                       type="button"
-                      onClick={() =>
-                        setItemForm((prev) => ({ ...prev, image_url: '' }))
-                      }
+                      onClick={() => setItemForm((prev) => ({ ...prev, image_url: '' }))}
                       className="absolute -top-2 -right-2 w-5 h-5 bg-destructive rounded-full flex items-center justify-center"
                     >
                       <X className="w-3 h-3 text-white" />
@@ -835,9 +996,7 @@ export default function MenuManagement() {
 
               <MobileSelect
                 value={itemForm.category_id || ''}
-                onValueChange={(v) =>
-                  setItemForm({ ...itemForm, category_id: v })
-                }
+                onValueChange={(v) => setItemForm({ ...itemForm, category_id: v })}
                 options={[
                   { value: '', label: 'No category' },
                   ...categories.map((c) => ({ value: c.id, label: c.name })),
@@ -852,9 +1011,7 @@ export default function MenuManagement() {
               <Input
                 type="number"
                 value={itemForm.sort_order || 0}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, sort_order: e.target.value })
-                }
+                onChange={(e) => setItemForm({ ...itemForm, sort_order: e.target.value })}
                 className="mt-1"
               />
             </div>
@@ -863,9 +1020,7 @@ export default function MenuManagement() {
               <Label>Available</Label>
               <Switch
                 checked={itemForm.is_available ?? true}
-                onCheckedChange={(v) =>
-                  setItemForm({ ...itemForm, is_available: v })
-                }
+                onCheckedChange={(v) => setItemForm({ ...itemForm, is_available: v })}
               />
             </div>
 
@@ -873,9 +1028,7 @@ export default function MenuManagement() {
               <Label>Sold Out</Label>
               <Switch
                 checked={itemForm.is_sold_out ?? false}
-                onCheckedChange={(v) =>
-                  setItemForm({ ...itemForm, is_sold_out: v })
-                }
+                onCheckedChange={(v) => setItemForm({ ...itemForm, is_sold_out: v })}
               />
             </div>
 
@@ -883,9 +1036,7 @@ export default function MenuManagement() {
               <Label>Featured Special</Label>
               <Switch
                 checked={itemForm.is_featured ?? false}
-                onCheckedChange={(v) =>
-                  setItemForm({ ...itemForm, is_featured: v })
-                }
+                onCheckedChange={(v) => setItemForm({ ...itemForm, is_featured: v })}
               />
             </div>
           </div>
@@ -901,12 +1052,11 @@ export default function MenuManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-            <Dialog open={catDialog} onOpenChange={setCatDialog}>
+
+      <Dialog open={catDialog} onOpenChange={setCatDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {editingCat ? 'Edit Category' : 'Add Category'}
-            </DialogTitle>
+            <DialogTitle>{editingCat ? 'Edit Category' : 'Add Category'}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -914,9 +1064,7 @@ export default function MenuManagement() {
               <Label>Name *</Label>
               <Input
                 value={catForm.name || ''}
-                onChange={(e) =>
-                  setCatForm({ ...catForm, name: e.target.value })
-                }
+                onChange={(e) => setCatForm({ ...catForm, name: e.target.value })}
                 className="mt-1"
               />
             </div>
@@ -925,9 +1073,7 @@ export default function MenuManagement() {
               <Label>Description</Label>
               <Textarea
                 value={catForm.description || ''}
-                onChange={(e) =>
-                  setCatForm({ ...catForm, description: e.target.value })
-                }
+                onChange={(e) => setCatForm({ ...catForm, description: e.target.value })}
                 className="mt-1"
               />
             </div>
@@ -937,9 +1083,7 @@ export default function MenuManagement() {
               <Input
                 type="number"
                 value={catForm.sort_order || 0}
-                onChange={(e) =>
-                  setCatForm({ ...catForm, sort_order: e.target.value })
-                }
+                onChange={(e) => setCatForm({ ...catForm, sort_order: e.target.value })}
                 className="mt-1"
               />
             </div>
@@ -948,9 +1092,7 @@ export default function MenuManagement() {
               <Label>Active</Label>
               <Switch
                 checked={catForm.is_active ?? true}
-                onCheckedChange={(v) =>
-                  setCatForm({ ...catForm, is_active: v })
-                }
+                onCheckedChange={(v) => setCatForm({ ...catForm, is_active: v })}
               />
             </div>
           </div>
