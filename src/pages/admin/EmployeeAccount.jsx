@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { User, Mail, Phone, MapPin, Save, CheckCircle } from 'lucide-react';
+import { User, Mail, Phone, MapPin, Save, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabaseClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,11 +9,21 @@ import { Label } from '@/components/ui/label';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
 
+function getSavedEmployeeFromStorage() {
+  try {
+    return JSON.parse(localStorage.getItem('pitstop_employee_user') || '{}');
+  } catch {
+    return {};
+  }
+}
+
 export default function EmployeeAccount() {
   const [employeeId, setEmployeeId] = useState(null);
+  const [employeeEmail, setEmployeeEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const [form, setForm] = useState({
     full_name: '',
@@ -27,46 +37,57 @@ export default function EmployeeAccount() {
   }, []);
 
   const loadEmployee = async () => {
-    try {
-      const savedEmployee = JSON.parse(
-        localStorage.getItem('pitstop_employee_user') || '{}'
-      );
+    setLoading(true);
+    setLoadError('');
 
-      const email = savedEmployee?.email || '';
+    try {
+      const savedEmployee = getSavedEmployeeFromStorage();
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const email =
+        savedEmployee?.email ||
+        savedEmployee?.employee_email ||
+        user?.email ||
+        '';
 
       if (!email) {
+        setLoadError('Employee account not found. Please log out and log back in.');
         toast.error('Employee account not found');
-        setLoading(false);
         return;
       }
+
+      const cleanEmail = String(email).trim().toLowerCase();
 
       const { data, error } = await supabase
         .from('employees')
         .select('*')
         .eq('restaurant_id', RESTAURANT_ID)
-        .eq('email', email)
+        .ilike('email', cleanEmail)
         .maybeSingle();
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       if (!data) {
+        setLoadError('Employee record not found in Supabase.');
         toast.error('Employee record not found');
-        setLoading(false);
         return;
       }
 
       setEmployeeId(data.id);
+      setEmployeeEmail(data.email || cleanEmail);
 
       setForm({
-        full_name: data.full_name || '',
-        email: data.email || email,
+        full_name: data.full_name || data.name || '',
+        email: data.email || cleanEmail,
         phone: data.phone || '',
         address: data.address || '',
       });
     } catch (error) {
-      console.error(error);
+      console.error('Failed to load employee account:', error);
+      setLoadError(error.message || 'Failed to load employee account');
       toast.error(error.message || 'Failed to load employee account');
     } finally {
       setLoading(false);
@@ -82,8 +103,8 @@ export default function EmployeeAccount() {
     }));
   };
 
-  const handleSave = async (e) => {
-    e.preventDefault();
+  const handleSave = async (event) => {
+    event.preventDefault();
 
     if (!employeeId) {
       toast.error('Employee record not found');
@@ -94,32 +115,48 @@ export default function EmployeeAccount() {
     setSaved(false);
 
     try {
-      const { error } = await supabase
-        .from('employees')
-        .update({
-          full_name: form.full_name,
-          phone: form.phone,
-          address: form.address,
-        })
-        .eq('id', employeeId)
-        .eq('restaurant_id', RESTAURANT_ID);
+      const updates = {
+        full_name: String(form.full_name || '').trim(),
+        phone: String(form.phone || '').trim(),
+        address: String(form.address || '').trim(),
+      };
 
-      if (error) {
-        throw error;
+      const { data, error } = await supabase
+        .from('employees')
+        .update(updates)
+        .eq('id', employeeId)
+        .eq('restaurant_id', RESTAURANT_ID)
+        .select('id, full_name, email, phone, address')
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (!data) {
+        throw new Error('No employee row was updated. Check Supabase RLS/update permissions.');
       }
 
-      const savedEmployee = JSON.parse(
-        localStorage.getItem('pitstop_employee_user') || '{}'
-      );
+      const savedEmployee = getSavedEmployeeFromStorage();
 
       localStorage.setItem(
         'pitstop_employee_user',
         JSON.stringify({
           ...savedEmployee,
-          name: form.full_name,
-          email: form.email,
+          id: data.id,
+          name: data.full_name || updates.full_name,
+          full_name: data.full_name || updates.full_name,
+          email: data.email || employeeEmail || form.email,
+          phone: data.phone || updates.phone,
+          address: data.address || updates.address,
+          restaurant_id: RESTAURANT_ID,
         })
       );
+
+      setForm({
+        full_name: data.full_name || '',
+        email: data.email || employeeEmail || form.email,
+        phone: data.phone || '',
+        address: data.address || '',
+      });
 
       setSaved(true);
       toast.success('Employee account updated');
@@ -128,7 +165,7 @@ export default function EmployeeAccount() {
         setSaved(false);
       }, 2500);
     } catch (error) {
-      console.error(error);
+      console.error('Failed to save employee account:', error);
       toast.error(error.message || 'Failed to save employee account');
     } finally {
       setSaving(false);
@@ -139,6 +176,46 @@ export default function EmployeeAccount() {
     return (
       <div className="min-h-[50vh] flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="max-w-2xl space-y-6">
+        <div>
+          <p
+            className="text-xs font-semibold tracking-widest uppercase text-primary/70 mb-1"
+            style={{ fontFamily: "'Barlow Condensed', sans-serif" }}
+          >
+            Employee Account
+          </p>
+
+          <h1 className="text-3xl font-display font-bold tracking-wide">
+            My Account
+          </h1>
+        </div>
+
+        <Card className="border-destructive/40">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-destructive mt-0.5" />
+              <div>
+                <p className="font-semibold">Account could not load</p>
+                <p className="text-sm text-muted-foreground mt-1">{loadError}</p>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4"
+                  onClick={loadEmployee}
+                >
+                  Try Again
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -179,9 +256,10 @@ export default function EmployeeAccount() {
                 <Input
                   id="full_name"
                   value={form.full_name}
-                  onChange={(e) => handleChange('full_name', e.target.value)}
+                  onChange={(event) => handleChange('full_name', event.target.value)}
                   className="pl-9"
                   placeholder="Employee name"
+                  disabled={saving}
                 />
               </div>
             </div>
@@ -209,9 +287,10 @@ export default function EmployeeAccount() {
                 <Input
                   id="phone"
                   value={form.phone}
-                  onChange={(e) => handleChange('phone', e.target.value)}
+                  onChange={(event) => handleChange('phone', event.target.value)}
                   className="pl-9"
                   placeholder="Phone number"
+                  disabled={saving}
                 />
               </div>
             </div>
@@ -223,18 +302,19 @@ export default function EmployeeAccount() {
                 <Input
                   id="address"
                   value={form.address}
-                  onChange={(e) => handleChange('address', e.target.value)}
+                  onChange={(event) => handleChange('address', event.target.value)}
                   className="pl-9"
                   placeholder="Address"
+                  disabled={saving}
                 />
               </div>
             </div>
 
             <Button
               type="submit"
-              disabled={saving}
+              disabled={saving || !employeeId}
               className={`w-full gap-2 transition-all duration-300 active:scale-[0.98] ${
-                saved ? 'bg-green-600 hover:bg-green-600 text-white' : ''
+                saved ? 'bg-green-600 hover:bg-green-600 text-white shadow-[0_0_20px_rgba(22,163,74,0.45)]' : ''
               }`}
             >
               {saving ? (

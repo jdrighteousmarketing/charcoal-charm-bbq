@@ -45,6 +45,20 @@ function formatTime(time) {
   return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
+function getDisplayPrice(item) {
+  if (item?.has_size_options && Array.isArray(item.sizes) && item.sizes.length > 0) {
+    const prices = item.sizes
+      .map((size) => Number(size.price || 0))
+      .filter((price) => price > 0);
+
+    if (prices.length > 0) {
+      return `From $${Math.min(...prices).toFixed(2)}`;
+    }
+  }
+
+  return `$${Number(item?.price || 0).toFixed(2)}`;
+}
+
 export default function Home() {
   const [profile, setProfile] = useState({
     id: '',
@@ -151,10 +165,7 @@ export default function Home() {
           .select('*')
           .eq('restaurant_id', RESTAURANT_ID)
           .eq('is_featured', true)
-          .eq('is_available', true)
-          .eq('is_sold_out', false)
-          .order('sort_order', { ascending: true })
-          .limit(6),
+          .order('sort_order', { ascending: true }),
       ]);
 
       if (restaurantError) throw restaurantError;
@@ -173,7 +184,22 @@ export default function Home() {
             : DEFAULT_HOURS,
       });
 
-      setFeaturedItems(itemData || []);
+      const visibleFeaturedItems = (itemData || [])
+        .filter((item) => item.is_available !== false)
+        .filter((item) => item.is_sold_out !== true)
+        .sort((a, b) => {
+          const aOrder = Number(a.sort_order ?? 0);
+          const bOrder = Number(b.sort_order ?? 0);
+
+          // Place sort_order = 0 last.
+          if (aOrder === 0 && bOrder !== 0) return 1;
+          if (bOrder === 0 && aOrder !== 0) return -1;
+
+          return aOrder - bOrder;
+        });
+
+      setFeaturedItems(visibleFeaturedItems);
+
     } catch (error) {
       console.error(error);
       setSettings(DEFAULT_SETTINGS);
@@ -342,7 +368,7 @@ export default function Home() {
                     </p>
 
                     <p className="text-primary font-bold mt-3">
-                      ${Number(item.price || 0).toFixed(2)}
+                      {getDisplayPrice(item)}
                     </p>
 
                     <div className="mt-3">
