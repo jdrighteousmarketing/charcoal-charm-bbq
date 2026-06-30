@@ -68,7 +68,7 @@ export default function CheckoutReview() {
   const [rewardSettings, setRewardSettings] = useState({
     pointsPerDollar: 1,
     maxPointsPerCustomer: 500,
-    rewardPointRounding: 'down',
+    rewardRounding: null,
   });
 
   const checkoutData = useMemo(() => {
@@ -101,8 +101,8 @@ export default function CheckoutReview() {
         setRewardSettings({
           pointsPerDollar: Number(data?.points_per_dollar || 1),
           maxPointsPerCustomer: Number(data?.max_points_per_customer || 500),
-          rewardPointRounding: normalizeRoundingRule(
-            data?.reward_point_rounding || 'down'
+          rewardRounding: normalizeRoundingRule(
+            data?.reward_rounding || 'down'
           ),
         });
       } catch (error) {
@@ -115,11 +115,15 @@ export default function CheckoutReview() {
   }, []);
 
   const orderTotal = Number(checkoutData.total || 0);
-  const previewPointsToAward = calculateRewardPoints(
-    orderTotal,
-    rewardSettings.pointsPerDollar,
-    rewardSettings.rewardPointRounding
-  );
+  const settingsReady = rewardSettings.rewardRounding !== null;
+
+const previewPointsToAward = settingsReady
+  ? calculateRewardPoints(
+      orderTotal,
+      rewardSettings.pointsPerDollar,
+      rewardSettings.rewardRounding
+    )
+  : null;
 
   const handleCompleteAward = async () => {
     setAwarding(true);
@@ -142,14 +146,14 @@ export default function CheckoutReview() {
 
       const pointsPerDollar = Number(settings?.points_per_dollar || 1);
       const maxPointsPerCustomer = Number(settings?.max_points_per_customer || 500);
-      const rewardPointRounding = normalizeRoundingRule(
-        settings?.reward_point_rounding || 'down'
+      const rewardRounding = normalizeRoundingRule(
+        settings?.reward_rounding || 'down'
       );
 
       const requestedPoints = calculateRewardPoints(
         orderTotal,
         pointsPerDollar,
-        rewardPointRounding
+        rewardRounding
       );
 
       const { data: customer, error: fetchError } = await supabase
@@ -240,8 +244,8 @@ export default function CheckoutReview() {
               points_amount: actualPointsAwarded,
               note:
                 actualPointsAwarded < requestedPoints
-                  ? `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar using ${getRoundingLabel(rewardPointRounding)}. Capped at ${maxPointsPerCustomer} max points.`
-                  : `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar using ${getRoundingLabel(rewardPointRounding)}.`,
+                  ? `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar using ${getRoundingLabel(rewardRounding)}. Capped at ${maxPointsPerCustomer} max points.`
+                  : `Earned from $${money(orderTotal)} at ${pointsPerDollar} point(s) per dollar using ${getRoundingLabel(rewardRounding)}.`,
               employee_name: staffUser?.name || staffUser?.email || 'Employee',
               awarded_by_employee_id: staffUser?.id || null,
               awarded_by_employee_auth_id: staffUser?.auth_user_id || null,
@@ -513,12 +517,12 @@ export default function CheckoutReview() {
 
           <div className="flex justify-between text-primary font-bold">
             <span>Points to Award</span>
-            <span>{previewPointsToAward} pts</span>
+           {settingsReady ? previewPointsToAward + ' pts' : 'Loading...'}
           </div>
 
           <p className="text-xs text-muted-foreground text-right">
             {rewardSettings.pointsPerDollar} point(s) per $1 •{' '}
-            {getRoundingLabel(rewardSettings.rewardPointRounding)}
+            {getRoundingLabel(rewardSettings.rewardRounding)}
           </p>
         </div>
 

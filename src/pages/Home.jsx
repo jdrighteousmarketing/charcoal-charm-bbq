@@ -33,20 +33,27 @@ const DEFAULT_SETTINGS = {
   business_hours: DEFAULT_HOURS,
 };
 
-const formatTime = (time) => {
+function getPointsBalance(customer) {
+  return Number(customer?.points_balance ?? 0);
+}
+
+function formatTime(time) {
   if (!time) return '';
   const [h, m] = time.split(':').map(Number);
   const ampm = h >= 12 ? 'PM' : 'AM';
   const hour = h % 12 || 12;
   return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
-};
+}
 
 export default function Home() {
   const [profile, setProfile] = useState({
+    id: '',
+    auth_user_id: '',
     name: 'Customer',
     email: '',
     points_balance: 0,
     customer_id_code: '',
+    customer_code: '',
   });
 
   const [featuredItems, setFeaturedItems] = useState([]);
@@ -62,17 +69,20 @@ export default function Home() {
 
       if (userError || !user?.id) {
         setProfile({
+          id: '',
+          auth_user_id: '',
           name: 'Customer',
           email: '',
           points_balance: 0,
           customer_id_code: '',
+          customer_code: '',
         });
         return;
       }
 
       const { data: customerData, error: customerError } = await supabase
         .from('customers')
-        .select('name, email, points_balance, customer_code, customer_id_code')
+        .select('*')
         .eq('restaurant_id', RESTAURANT_ID)
         .eq('auth_user_id', user.id)
         .maybeSingle();
@@ -81,33 +91,43 @@ export default function Home() {
 
       if (!customerData) {
         setProfile({
+          id: '',
+          auth_user_id: user.id,
           name: user.email?.split('@')[0] || 'Customer',
           email: user.email || '',
           points_balance: 0,
           customer_id_code: '',
+          customer_code: '',
         });
         return;
       }
 
+      const customerCode =
+        customerData.customer_code || customerData.customer_id_code || '';
+
       setProfile({
+        id: customerData.id || '',
+        auth_user_id: customerData.auth_user_id || user.id,
         name:
           customerData.name ||
+          customerData.full_name ||
           user.email?.split('@')[0] ||
           'Customer',
         email: customerData.email || user.email || '',
-        points_balance: Number(customerData.points_balance || 0),
-        customer_id_code:
-          customerData.customer_code ||
-          customerData.customer_id_code ||
-          '',
+        points_balance: getPointsBalance(customerData),
+        customer_id_code: customerCode,
+        customer_code: customerCode,
       });
     } catch (error) {
       console.error('Could not load customer profile:', error);
       setProfile({
+        id: '',
+        auth_user_id: '',
         name: 'Customer',
         email: '',
         points_balance: 0,
         customer_id_code: '',
+        customer_code: '',
       });
     }
   };
@@ -156,7 +176,6 @@ export default function Home() {
       setFeaturedItems(itemData || []);
     } catch (error) {
       console.error(error);
-
       setSettings(DEFAULT_SETTINGS);
       setFeaturedItems([]);
     } finally {
@@ -173,13 +192,48 @@ export default function Home() {
     loadHomeData();
 
     window.addEventListener('focus', handleUpdate);
+    window.addEventListener('visibilitychange', handleUpdate);
     window.addEventListener('pitstop_checkout_rewards_updated', handleUpdate);
+    window.addEventListener('pitstop_customer_points_updated', handleUpdate);
 
     return () => {
       window.removeEventListener('focus', handleUpdate);
+      window.removeEventListener('visibilitychange', handleUpdate);
       window.removeEventListener('pitstop_checkout_rewards_updated', handleUpdate);
+      window.removeEventListener('pitstop_customer_points_updated', handleUpdate);
     };
   }, []);
+
+  useEffect(() => {
+    if (!profile.customer_code) return undefined;
+
+    const channel = supabase
+      .channel(`home-customer-points-${profile.customer_code}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'customers',
+          filter: `customer_code=eq.${profile.customer_code}`,
+        },
+        (payload) => {
+          const updatedCustomer = payload?.new;
+
+          if (!updatedCustomer) return;
+
+          setProfile((prev) => ({
+            ...prev,
+            points_balance: getPointsBalance(updatedCustomer),
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile.customer_code]);
 
   const handleRefresh = async () => {
     await Promise.all([loadCustomerProfile(), loadHomeData()]);
@@ -218,10 +272,10 @@ export default function Home() {
                   <div>
                     <p className="text-xs text-white/80">Your Points</p>
                     <p className="text-2xl font-display font-bold">
-                      {profile.points_balance}
+                      {profile.points_balance || 0}
                     </p>
                     <p className="text-[10px] text-white/70 font-mono">
-                      {profile.customer_id_code}
+                      {profile.customer_id_code || '---'}
                     </p>
                   </div>
                 </div>
