@@ -165,7 +165,7 @@ export default function Home() {
           .select('*')
           .eq('restaurant_id', RESTAURANT_ID)
           .eq('is_featured', true)
-          .order('sort_order', { ascending: true }),
+          .order('featured_order', { ascending: true, nullsFirst: false }),
       ]);
 
       if (restaurantError) throw restaurantError;
@@ -188,14 +188,12 @@ export default function Home() {
         .filter((item) => item.is_available !== false)
         .filter((item) => item.is_sold_out !== true)
         .sort((a, b) => {
-          const aOrder = Number(a.sort_order ?? 0);
-          const bOrder = Number(b.sort_order ?? 0);
+          const aOrder = Number(a.featured_order ?? 999999);
+          const bOrder = Number(b.featured_order ?? 999999);
 
-          // Place sort_order = 0 last.
-          if (aOrder === 0 && bOrder !== 0) return 1;
-          if (bOrder === 0 && aOrder !== 0) return -1;
+          if (aOrder !== bOrder) return aOrder - bOrder;
 
-          return aOrder - bOrder;
+          return String(a.name || '').localeCompare(String(b.name || ''));
         });
 
       setFeaturedItems(visibleFeaturedItems);

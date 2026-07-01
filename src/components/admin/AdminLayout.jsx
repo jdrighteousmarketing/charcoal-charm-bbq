@@ -12,6 +12,7 @@ import {
   X,
   ScanLine,
   User,
+  Heart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
@@ -22,6 +23,7 @@ import { useAuth } from '@/lib/AuthContext';
 const ownerAdminNavItems = [
   { path: '/admin', icon: LayoutDashboard, label: 'Dashboard', exact: true },
   { path: '/admin/menu', icon: UtensilsCrossed, label: 'Menu' },
+  { path: '/admin/featured-specials', icon: Heart, label: 'Featured Specials' },
   { path: '/admin/rewards', icon: Gift, label: 'Rewards' },
   { path: '/admin/promotions', icon: Tag, label: 'Promotions' },
   { path: '/admin/customers', icon: Users, label: 'Customers' },

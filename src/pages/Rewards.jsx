@@ -84,6 +84,7 @@ export default function Rewards() {
     customer_code: '',
     birthday: null,
     birthday_reward_redeemed_at: null,
+    isPreviewMode: false,
   });
 
   const loadRewardsData = async () => {
@@ -97,53 +98,84 @@ export default function Rewards() {
         error: userError,
       } = await supabase.auth.getUser();
 
+      const previewProfile = {
+        id: '',
+        auth_user_id: user?.id || '',
+        name: 'Customer Preview',
+        email: user?.email || '',
+        points_balance: 0,
+        lifetime_points: 0,
+        customer_id_code: 'PREVIEW',
+        customer_code: 'PREVIEW',
+        birthday: null,
+        birthday_reward_redeemed_at: null,
+        isPreviewMode: true,
+      };
+
       if (userError || !user?.id) {
-        throw new Error('You must be logged in to view rewards.');
+        activeProfile = previewProfile;
+        setProfile(activeProfile);
+      } else {
+        const { data: customerProfile, error: customerError } = await supabase
+          .from('customers')
+          .select('*')
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('auth_user_id', user.id)
+          .maybeSingle();
+
+        if (customerError) throw customerError;
+
+        if (!customerProfile) {
+          activeProfile = previewProfile;
+          setProfile(activeProfile);
+        } else {
+          activeProfile = {
+            id: customerProfile.id,
+            auth_user_id: customerProfile.auth_user_id || user.id,
+            name:
+              customerProfile.name ||
+              customerProfile.full_name ||
+              user.email?.split('@')[0] ||
+              'Customer',
+            email: customerProfile.email || user.email || '',
+            points_balance: getPointsBalance(customerProfile),
+            lifetime_points: getLifetimePoints(customerProfile),
+            customer_id_code:
+              customerProfile.customer_code ||
+              customerProfile.customer_id_code ||
+              '',
+            customer_code:
+              customerProfile.customer_code ||
+              customerProfile.customer_id_code ||
+              '',
+            birthday: customerProfile.birthday || null,
+            birthday_reward_redeemed_at:
+              customerProfile.birthday_reward_redeemed_at || null,
+            isPreviewMode: false,
+          };
+
+          setProfile(activeProfile);
+        }
       }
-
-      const { data: customerProfile, error: customerError } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('restaurant_id', RESTAURANT_ID)
-        .eq('auth_user_id', user.id)
-        .maybeSingle();
-
-      if (customerError) throw customerError;
-
-      if (!customerProfile) {
-        throw new Error('Customer profile not found.');
-      }
+    } catch (error) {
+      console.error('Could not load customer:', error);
 
       activeProfile = {
-        id: customerProfile.id,
-        auth_user_id: customerProfile.auth_user_id || user.id,
-        name:
-          customerProfile.name ||
-          customerProfile.full_name ||
-          user.email?.split('@')[0] ||
-          'Customer',
-        email: customerProfile.email || user.email || '',
-        points_balance: getPointsBalance(customerProfile),
-        lifetime_points: getLifetimePoints(customerProfile),
-        customer_id_code:
-          customerProfile.customer_code ||
-          customerProfile.customer_id_code ||
-          '',
-        customer_code:
-          customerProfile.customer_code ||
-          customerProfile.customer_id_code ||
-          '',
-        birthday: customerProfile.birthday || null,
-        birthday_reward_redeemed_at:
-          customerProfile.birthday_reward_redeemed_at || null,
+        id: '',
+        auth_user_id: '',
+        name: 'Customer Preview',
+        email: '',
+        points_balance: 0,
+        lifetime_points: 0,
+        customer_id_code: 'PREVIEW',
+        customer_code: 'PREVIEW',
+        birthday: null,
+        birthday_reward_redeemed_at: null,
+        isPreviewMode: true,
       };
 
       setProfile(activeProfile);
-    } catch (error) {
-      console.error('Could not load customer:', error);
-      toast.error(error.message || 'Could not load customer profile.');
-      setLoading(false);
-      return;
+      toast.error('Customer profile not found. Showing rewards preview.');
     }
 
     try {
@@ -162,39 +194,44 @@ export default function Rewards() {
       setRewards([]);
     }
 
-    try {
-      const { data: pendingBirthdayData, error: pendingBirthdayError } =
-        await supabase
-          .from('customer_checkout_rewards')
-          .select('reward_id')
+    if (!activeProfile?.isPreviewMode && activeProfile?.customer_id_code) {
+      try {
+        const { data: pendingBirthdayData, error: pendingBirthdayError } =
+          await supabase
+            .from('customer_checkout_rewards')
+            .select('reward_id')
+            .eq('restaurant_id', RESTAURANT_ID)
+            .eq('customer_code', activeProfile.customer_id_code)
+            .eq('status', 'pending');
+
+        if (pendingBirthdayError) throw pendingBirthdayError;
+
+        setPendingBirthdayRewardIds(
+          (pendingBirthdayData || []).map((item) => String(item.reward_id))
+        );
+      } catch (error) {
+        console.error('Could not load pending birthday rewards:', error);
+        setPendingBirthdayRewardIds([]);
+      }
+
+      try {
+        const { data: txData, error: txError } = await supabase
+          .from('points_transactions')
+          .select('*')
           .eq('restaurant_id', RESTAURANT_ID)
           .eq('customer_code', activeProfile.customer_id_code)
-          .eq('status', 'pending');
+          .order('created_at', { ascending: false })
+          .limit(10);
 
-      if (pendingBirthdayError) throw pendingBirthdayError;
+        if (txError) throw txError;
 
-      setPendingBirthdayRewardIds(
-        (pendingBirthdayData || []).map((item) => String(item.reward_id))
-      );
-    } catch (error) {
-      console.error('Could not load pending birthday rewards:', error);
+        setTransactions(Array.isArray(txData) ? txData : []);
+      } catch (error) {
+        console.error('Could not load point transactions:', error);
+        setTransactions([]);
+      }
+    } else {
       setPendingBirthdayRewardIds([]);
-    }
-
-    try {
-      const { data: txData, error: txError } = await supabase
-        .from('points_transactions')
-        .select('*')
-        .eq('restaurant_id', RESTAURANT_ID)
-        .eq('customer_code', activeProfile.customer_id_code)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      if (txError) throw txError;
-
-      setTransactions(Array.isArray(txData) ? txData : []);
-    } catch (error) {
-      console.error('Could not load point transactions:', error);
       setTransactions([]);
     }
 
@@ -223,6 +260,11 @@ export default function Rewards() {
   };
 
   const handleRedeemReward = async (reward) => {
+    if (profile.isPreviewMode) {
+      toast.info('Preview mode only. Log in as a customer to redeem rewards.');
+      return;
+    }
+
     if ((profile.points_balance || 0) < reward.points_required) {
       toast.error('Not enough points yet');
       return;
@@ -297,6 +339,11 @@ export default function Rewards() {
   };
 
   const handleRedeemBirthdayReward = async (reward) => {
+    if (profile.isPreviewMode) {
+      toast.info('Preview mode only. Log in as a customer to redeem rewards.');
+      return;
+    }
+
     if (!canShowBirthdayReward(profile)) {
       toast.error('Birthday reward is not available.');
       return;
@@ -348,13 +395,15 @@ export default function Rewards() {
     (reward) => !reward.is_birthday_reward
   );
 
-  const birthdayRewards = canShowBirthdayReward(profile)
-    ? sortedRewards
-        .filter((reward) => reward.is_birthday_reward)
-        .filter(
-          (reward) => !pendingBirthdayRewardIds.includes(String(reward.id))
-        )
-    : [];
+  const birthdayRewards = profile.isPreviewMode
+    ? sortedRewards.filter((reward) => reward.is_birthday_reward)
+    : canShowBirthdayReward(profile)
+      ? sortedRewards
+          .filter((reward) => reward.is_birthday_reward)
+          .filter(
+            (reward) => !pendingBirthdayRewardIds.includes(String(reward.id))
+          )
+      : [];
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
@@ -364,6 +413,12 @@ export default function Rewards() {
           <p className="text-sm text-muted-foreground mt-1">
             Earn points, get rewarded
           </p>
+
+          {profile.isPreviewMode && (
+            <div className="mt-3 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
+              Admin preview mode: rewards are visible, but redemption buttons are disabled.
+            </div>
+          )}
         </div>
 
         <div className="px-5 mt-4">
@@ -379,7 +434,7 @@ export default function Rewards() {
               <div className="flex items-center gap-2 mb-4">
                 <Trophy className="w-5 h-5" />
                 <span className="text-sm font-medium text-white/80">
-                  Points Balance
+                  {profile.isPreviewMode ? 'Preview Balance' : 'Points Balance'}
                 </span>
               </div>
 
@@ -388,7 +443,9 @@ export default function Rewards() {
               </p>
 
               <p className="text-xs text-white/70 mt-2">
-                Show your Reward ID at checkout to earn points.
+                {profile.isPreviewMode
+                  ? 'This is how customers will see the rewards page.'
+                  : 'Show your Reward ID at checkout to earn points.'}
               </p>
 
               <div className="mt-5 flex items-center gap-3 bg-white/15 backdrop-blur-sm rounded-xl p-3">
@@ -485,16 +542,18 @@ export default function Rewards() {
                           </p>
                         </div>
 
-                        {canRedeem && (
+                        {(canRedeem || profile.isPreviewMode) && (
                           <Button
                             size="sm"
                             className="mt-3 w-full h-8"
-                            disabled={redeemingId === reward.id}
+                            disabled={redeemingId === reward.id || profile.isPreviewMode}
                             onClick={() => handleRedeemReward(reward)}
                           >
-                            {redeemingId === reward.id
-                              ? 'Adding to Checkout...'
-                              : 'Redeem Reward'}
+                            {profile.isPreviewMode
+                              ? 'Customer Preview'
+                              : redeemingId === reward.id
+                                ? 'Adding to Checkout...'
+                                : 'Redeem Reward'}
                           </Button>
                         )}
                       </div>
@@ -533,18 +592,22 @@ export default function Rewards() {
                     )}
 
                     <p className="text-[10px] text-muted-foreground mt-1">
-                      Available within 30 days of your birthday. If removed from checkout, it will return here.
+                      {profile.isPreviewMode
+                        ? 'Admin preview: birthday rewards appear here when customers are within 30 days of their birthday.'
+                        : 'Available within 30 days of your birthday. If removed from checkout, it will return here.'}
                     </p>
 
                     <Button
                       size="sm"
                       className="mt-3 w-full h-8"
-                      disabled={redeemingId === reward.id}
+                      disabled={redeemingId === reward.id || profile.isPreviewMode}
                       onClick={() => handleRedeemBirthdayReward(reward)}
                     >
-                      {redeemingId === reward.id
-                        ? 'Adding to Checkout...'
-                        : 'Add Birthday Reward to Checkout'}
+                      {profile.isPreviewMode
+                        ? 'Customer Preview'
+                        : redeemingId === reward.id
+                          ? 'Adding to Checkout...'
+                          : 'Add Birthday Reward to Checkout'}
                     </Button>
                   </div>
                 </div>

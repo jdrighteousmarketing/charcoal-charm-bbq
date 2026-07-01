@@ -38,6 +38,8 @@ import Dashboard from './pages/admin/Dashboard';
 import EmployeeDashboard from './pages/admin/EmployeeDashboard';
 import EmployeeAccount from './pages/admin/EmployeeAccount';
 import MenuManagement from './pages/admin/MenuManagement';
+import FeaturedSpecials from './pages/admin/FeaturedSpecials.jsx';
+import BusinessInsights from './pages/admin/BusinessInsights.jsx';
 import RewardsManagement from './pages/admin/RewardsManagement';
 import PromotionsManagement from './pages/admin/PromotionsManagement';
 import CustomerManagement from './pages/admin/CustomerManagement';
@@ -134,6 +136,8 @@ const AuthenticatedApp = () => {
             element={<EmployeeAccount />}
           />
           <Route path="/admin/menu" element={<MenuManagement />} />
+          <Route path="/admin/featured-specials" element={<FeaturedSpecials />} />
+          <Route path="/admin/business-insights" element={<BusinessInsights />} />
           <Route path="/admin/rewards" element={<RewardsManagement />} />
           <Route path="/admin/promotions" element={<PromotionsManagement />} />
           <Route path="/admin/customers" element={<CustomerManagement />} />

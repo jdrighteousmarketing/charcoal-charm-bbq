@@ -1,4 +1,4 @@
-import { Users, ScanLine, ArrowRight, User } from 'lucide-react';
+import { Users, ScanLine, ArrowRight, User, Heart } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -26,6 +26,14 @@ const employeeTools = [
     iconColor: 'text-blue-400',
   },
   {
+    path: '/admin/featured-specials',
+    icon: Heart,
+    label: 'Featured Specials',
+    desc: 'Choose and organize homepage specials',
+    color: 'from-amber-500/20 to-yellow-500/10 border-amber-500/30',
+    iconColor: 'text-amber-400',
+  },
+  {
     path: '/admin/employee-account',
     icon: User,
     label: 'Account',
@@ -45,6 +53,10 @@ function safeDate(value) {
   }
 
   return format(date, 'MMM d');
+}
+
+function castDate(value) {
+  return value || null;
 }
 
 export default function EmployeeDashboard() {
@@ -280,8 +292,4 @@ export default function EmployeeDashboard() {
       </div>
     </div>
   );
-}
-
-function castDate(value) {
-  return value || null;
 }

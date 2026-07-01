@@ -38,6 +38,36 @@ function normalizeRewards(claimedReward) {
   return [claimedReward];
 }
 
+function getRewardName(reward) {
+  return (
+    reward?.rewardName ||
+    reward?.reward_name ||
+    reward?.name ||
+    reward?.title ||
+    'Birthday Reward'
+  );
+}
+
+function getRewardPointsRequired(reward) {
+  return Number(
+    reward?.pointsRequired ??
+      reward?.points_required ??
+      reward?.points ??
+      0
+  );
+}
+
+function isBirthdayReward(reward) {
+  return (
+    reward?.is_birthday_reward === true ||
+    reward?.isBirthdayReward === true ||
+    String(reward?.rewardType || reward?.reward_type || '')
+      .toLowerCase()
+      .includes('birthday') ||
+    getRewardPointsRequired(reward) === 0
+  );
+}
+
 
 function normalizeRoundingRule(value) {
   return value === 'up' ? 'up' : 'down';
@@ -318,11 +348,9 @@ const previewPointsToAward = settingsReady
 
           if (rewardsError) throw rewardsError;
 
-          const birthdayRewardUsed = claimedRewards.some(
-            (reward) => Number(reward.pointsRequired || 0) === 0
-          );
+          const birthdayRewardsUsed = claimedRewards.filter(isBirthdayReward);
 
-          if (birthdayRewardUsed) {
+          if (birthdayRewardsUsed.length > 0) {
             const { error: birthdayError } = await supabase
               .from('customers')
               .update({
@@ -332,6 +360,23 @@ const previewPointsToAward = settingsReady
               .eq('customer_code', customerCode);
 
             if (birthdayError) throw birthdayError;
+
+            const birthdayRedemptionRows = birthdayRewardsUsed.map((reward) => ({
+              restaurant_id: RESTAURANT_ID,
+              customer_id: customer.id || null,
+              customer_code: customerCode,
+              customer_name: customer.name || checkoutData.customerName || null,
+              customer_email: customer.email || null,
+              reward_name: getRewardName(reward),
+              redeemed_by: staffUser?.name || staffUser?.email || 'Employee',
+              redeemed_at: completedAt,
+            }));
+
+            const { error: birthdayRedemptionError } = await supabase
+              .from('birthday_reward_redemptions')
+              .insert(birthdayRedemptionRows);
+
+            if (birthdayRedemptionError) throw birthdayRedemptionError;
           }
         }
       }
@@ -359,6 +404,37 @@ const previewPointsToAward = settingsReady
           .eq('status', 'pending');
 
         if (pendingRewardsError) throw pendingRewardsError;
+
+        const birthdayRewardsUsed = claimedRewards.filter(isBirthdayReward);
+
+        if (birthdayRewardsUsed.length > 0) {
+          const { error: birthdayError } = await supabase
+            .from('customers')
+            .update({
+              birthday_reward_redeemed_at: completedAt,
+            })
+            .eq('restaurant_id', RESTAURANT_ID)
+            .eq('customer_code', customerCode);
+
+          if (birthdayError) throw birthdayError;
+
+          const birthdayRedemptionRows = birthdayRewardsUsed.map((reward) => ({
+            restaurant_id: RESTAURANT_ID,
+            customer_id: customer.id || null,
+            customer_code: customerCode,
+            customer_name: customer.name || checkoutData.customerName || null,
+            customer_email: customer.email || null,
+            reward_name: getRewardName(reward),
+            redeemed_by: staffUser?.name || staffUser?.email || 'Employee',
+            redeemed_at: completedAt,
+          }));
+
+          const { error: birthdayRedemptionError } = await supabase
+            .from('birthday_reward_redemptions')
+            .insert(birthdayRedemptionRows);
+
+          if (birthdayRedemptionError) throw birthdayRedemptionError;
+        }
       }
 
       if (checkoutData.checkoutCode || checkoutData.checkout_code) {

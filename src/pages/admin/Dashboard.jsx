@@ -8,7 +8,8 @@ import {
   UtensilsCrossed,
   Settings,
   ScanLine,
-  Star,
+  Heart,
+  Sparkles,
   Zap,
   ArrowRight,
   DollarSign,
@@ -118,6 +119,7 @@ export default function Dashboard() {
         menuItemsResult,
         rewardsResult,
         promotionsResult,
+        featuredItemsResult,
       ] = await Promise.all([
         supabase
           .from('restaurants')
@@ -180,6 +182,12 @@ export default function Dashboard() {
           .select('id', { count: 'exact', head: true })
           .eq('restaurant_id', RESTAURANT_ID)
           .eq('is_active', true),
+
+        supabase
+          .from('menu_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('is_featured', true),
       ]);
 
       if (restaurantResult.error) console.error('Restaurant error:', restaurantResult.error);
@@ -191,6 +199,7 @@ export default function Dashboard() {
       if (menuItemsResult.error) console.error('Menu items error:', menuItemsResult.error);
       if (rewardsResult.error) console.error('Rewards error:', rewardsResult.error);
       if (promotionsResult.error) console.error('Promotions error:', promotionsResult.error);
+      if (featuredItemsResult.error) console.error('Featured items error:', featuredItemsResult.error);
 
       const todayTransactions = todayTransactionsResult.data || [];
 
@@ -288,6 +297,7 @@ export default function Dashboard() {
         menuItemsCount: menuItemsResult.count || 0,
         rewardsCount: rewardsResult.count || 0,
         promotionsCount: promotionsResult.count || 0,
+        featuredItemsCount: featuredItemsResult.count || 0,
         transactionsCount: allTransactionsResult.count || 0,
       };
     },
@@ -302,11 +312,11 @@ export default function Dashboard() {
       path: '/admin/customers',
     },
     {
-      label: 'Points Issued Today',
-      value: isLoading ? '...' : Number(data.pointsIssuedToday || 0).toLocaleString(),
-      icon: Star,
-      color: 'text-amber-400',
-      path: '/admin/customers',
+      label: 'Featured Menu Items',
+      value: isLoading ? '...' : data.featuredItemsCount || 0,
+      icon: Heart,
+      color: 'text-rose-400',
+      path: '/admin/featured-specials',
     },
     {
       label: 'Active Promos',
@@ -626,36 +636,35 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/60">
-          <CardContent className="p-5">
-            <h2 className="text-sm font-semibold tracking-widest uppercase text-muted-foreground mb-3">
-              Rewards Summary
-            </h2>
+        <Link to="/admin/business-insights" className="block">
+          <Card className="border-primary/60 bg-gradient-to-br from-primary/15 via-card to-card hover:scale-[1.01] transition-transform duration-200 cursor-pointer overflow-hidden">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-2xl bg-primary/15 border border-primary/40 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-8 h-8 text-primary fill-primary/30" />
+                </div>
 
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Available Rewards</span>
-                <span className="font-semibold">
-                  {isLoading ? '...' : data.rewardsCount || 0}
-                </span>
-              </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg font-display font-bold tracking-widest uppercase text-primary">
+                    Business Insights
+                  </h2>
 
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Point Transactions</span>
-                <span className="font-semibold">
-                  {isLoading ? '...' : data.transactionsCount || 0}
-                </span>
-              </div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Sales • Customers • Rewards • Trends
+                  </p>
 
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Recent Orders Shown</span>
-                <span className="font-semibold">
-                  {isLoading ? '...' : orders.length}
-                </span>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    View detailed analytics and grow your business
+                  </p>
+                </div>
+
+                <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/40 flex items-center justify-center shrink-0">
+                  <ArrowRight className="w-5 h-5 text-primary" />
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
     </div>
   );
