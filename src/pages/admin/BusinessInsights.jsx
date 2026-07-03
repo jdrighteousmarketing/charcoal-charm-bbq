@@ -12,6 +12,7 @@ import {
   AreaChart,
   Bar,
   BarChart,
+  Cell,
   CartesianGrid,
   Line,
   LineChart,
@@ -53,6 +54,19 @@ import {
 import { supabase } from '@/lib/supabaseClient';
 
 const RESTAURANT_ID = 'pit_stop_mobile';
+
+const CHART_COLORS = {
+  gold: '#f59e0b',
+  goldSoft: '#fbbf24',
+  green: '#22c55e',
+  purple: '#8b5cf6',
+  mutedBar: '#e7ded4',
+};
+
+const BUSY_DAY_COLORS = {
+  busiest: CHART_COLORS.gold,
+  normal: 'rgba(231, 222, 212, 0.72)',
+};
 
 function EmptyChartState({ message = 'No chart data yet.' }) {
   return (
@@ -168,7 +182,7 @@ function buildMenuPerformance(orderItems = []) {
 
   orderItems.forEach((item) => {
     const itemName = item.item_name || 'Unknown Item';
-    const categoryName = item.category_name || 'Uncategorized';
+    const categoryName = item.category_name || null;
     const quantity = Number(item.quantity || 0);
     const revenue = Number(item.total_price || 0);
 
@@ -183,16 +197,18 @@ function buildMenuPerformance(orderItems = []) {
     itemTotals[itemName].quantity += quantity;
     itemTotals[itemName].revenue += revenue;
 
-    if (!categoryTotals[categoryName]) {
-      categoryTotals[categoryName] = {
-        categoryName,
-        quantity: 0,
-        revenue: 0,
-      };
-    }
+    if (categoryName) {
+      if (!categoryTotals[categoryName]) {
+        categoryTotals[categoryName] = {
+          categoryName,
+          quantity: 0,
+          revenue: 0,
+        };
+      }
 
-    categoryTotals[categoryName].quantity += quantity;
-    categoryTotals[categoryName].revenue += revenue;
+      categoryTotals[categoryName].quantity += quantity;
+      categoryTotals[categoryName].revenue += revenue;
+    }
   });
 
   const topSellingItems = Object.values(itemTotals)
@@ -450,6 +466,27 @@ export default function BusinessInsights() {
   const busyDays = data.busyDays || [];
   const revenueVsRewards = data.revenueVsRewards || [];
 
+  const maxBusyDayOrders = Math.max(
+    0,
+    ...busyDays.map((day) => Number(day.orders || 0))
+  );
+
+  const busyDaysChartData = busyDays.map((day) => ({
+    ...day,
+    fill:
+      maxBusyDayOrders > 0 && Number(day.orders || 0) === maxBusyDayOrders
+        ? BUSY_DAY_COLORS.busiest
+        : BUSY_DAY_COLORS.normal,
+  }));
+
+  const revenueVsRewardsChartData = revenueVsRewards.map((row) => ({
+    ...row,
+    fill:
+      row.label === 'Revenue'
+        ? CHART_COLORS.green
+        : CHART_COLORS.purple,
+  }));
+
   return (
     <div className="space-y-8 pb-6">
       <div>
@@ -462,7 +499,8 @@ export default function BusinessInsights() {
         </h1>
 
         <p className="mt-1 text-sm leading-snug text-muted-foreground">
-          Phase 4 analytics: menu performance, sales, customers, rewards, and busy days.
+          Monitor sales, menu performance, customer growth,
+          rewards, and business trends.
         </p>
 
         <div className="mt-3 rounded-2xl border border-primary/30 bg-primary/10 p-3">
@@ -493,11 +531,27 @@ export default function BusinessInsights() {
               <div className="h-[270px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={dailySalesTrend} margin={{ top: 10, right: 8, left: -16, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="salesTrendGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={CHART_COLORS.gold} stopOpacity={0.38} />
+                        <stop offset="95%" stopColor={CHART_COLORS.gold} stopOpacity={0.03} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} tickMargin={8} />
                     <YAxis tick={{ fontSize: 10 }} tickFormatter={(value) => `$${value}`} />
                     <Tooltip content={<CurrencyTooltip />} />
-                    <Area type="monotone" dataKey="sales" name="Sales" stroke="currentColor" fill="currentColor" fillOpacity={0.18} strokeWidth={2} />
+                    <Area
+                      type="monotone"
+                      dataKey="sales"
+                      name="Sales"
+                      stroke={CHART_COLORS.gold}
+                      fill="url(#salesTrendGradient)"
+                      fillOpacity={1}
+                      strokeWidth={3}
+                      dot={{ r: 2.5, fill: CHART_COLORS.goldSoft, stroke: CHART_COLORS.gold, strokeWidth: 1 }}
+                      activeDot={{ r: 5, fill: CHART_COLORS.goldSoft, stroke: CHART_COLORS.gold, strokeWidth: 2 }}
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -517,12 +571,16 @@ export default function BusinessInsights() {
           ) : hasChartData(busyDays, ['orders']) ? (
             <div className="h-[230px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={busyDays} margin={{ top: 10, right: 8, left: -22, bottom: 0 }}>
+                <BarChart data={busyDaysChartData} margin={{ top: 10, right: 8, left: -22, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
                   <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
                   <Tooltip content={<NumberTooltip />} />
-                  <Bar dataKey="orders" name="Orders" radius={[8, 8, 0, 0]} fill="currentColor" />
+                  <Bar dataKey="orders" name="Orders" radius={[8, 8, 0, 0]}>
+                    {busyDaysChartData.map((entry, index) => (
+                      <Cell key={`busy-day-${entry.label}-${index}`} fill={entry.fill} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -541,12 +599,16 @@ export default function BusinessInsights() {
           ) : hasChartData(revenueVsRewards, ['value']) ? (
             <div className="h-[230px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={revenueVsRewards} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
+                <BarChart data={revenueVsRewardsChartData} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
                   <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} />
                   <Tooltip content={<NumberTooltip />} />
-                  <Bar dataKey="value" name="Value" radius={[8, 8, 0, 0]} fill="currentColor" />
+                  <Bar dataKey="value" name="Value" radius={[8, 8, 0, 0]}>
+                    {revenueVsRewardsChartData.map((entry, index) => (
+                      <Cell key={`revenue-rewards-${entry.label}-${index}`} fill={entry.fill} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -583,7 +645,17 @@ export default function BusinessInsights() {
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
                     <Tooltip content={<NumberTooltip />} />
-                    <Bar dataKey="value" name="Amount" radius={[8, 8, 0, 0]} fill="currentColor" />
+                    <Bar dataKey="value" name="Amount" radius={[8, 8, 0, 0]}>
+                      {rewardsUsage.map((entry, index) => {
+                        const fill =
+                          entry.label === 'Issued'
+                            ? CHART_COLORS.gold
+                            : entry.label === 'Redeemed'
+                            ? CHART_COLORS.purple
+                            : CHART_COLORS.green;
+                        return <Cell key={`reward-${index}`} fill={fill} />;
+                      })}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -611,13 +683,19 @@ export default function BusinessInsights() {
             ) : customerGrowthTrend.length > 0 ? (
               <div className="h-[270px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={customerGrowthTrend} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
+                  <AreaChart data={customerGrowthTrend} margin={{ top: 10, right: 8, left: -18, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} tickMargin={8} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
                     <Tooltip content={<NumberTooltip />} />
-                    <Line type="monotone" dataKey="customers" name="Customers" stroke="currentColor" strokeWidth={2} dot={false} />
-                  </LineChart>
+                    <defs>
+                      <linearGradient id="customerGrowthGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={CHART_COLORS.green} stopOpacity={0.35}/>
+                        <stop offset="95%" stopColor={CHART_COLORS.green} stopOpacity={0.02}/>
+                      </linearGradient>
+                    </defs>
+                    <Area type="monotone" dataKey="customers" stroke={CHART_COLORS.green} fill="url(#customerGrowthGradient)" strokeWidth={3} dot={false} />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
             ) : (

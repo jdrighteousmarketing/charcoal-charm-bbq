@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { BarChart3, PieChart, ShoppingBag, Trophy } from 'lucide-react';
 import {
   Bar,

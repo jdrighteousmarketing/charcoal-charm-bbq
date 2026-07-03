@@ -26,14 +26,6 @@ const employeeTools = [
     iconColor: 'text-blue-400',
   },
   {
-    path: '/admin/featured-specials',
-    icon: Heart,
-    label: 'Featured Specials',
-    desc: 'Choose and organize homepage specials',
-    color: 'from-amber-500/20 to-yellow-500/10 border-amber-500/30',
-    iconColor: 'text-amber-400',
-  },
-  {
     path: '/admin/employee-account',
     icon: User,
     label: 'Account',
