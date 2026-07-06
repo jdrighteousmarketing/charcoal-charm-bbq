@@ -63,6 +63,22 @@ function getCouponTargetCategoryId(coupon) {
   return coupon?.targetCategoryId || coupon?.target_category_id || null;
 }
 
+function getRewardType(reward) {
+  return String(reward?.rewardType || reward?.reward_type || 'points_reward').toLowerCase();
+}
+
+function getRewardDiscountType(reward) {
+  return String(reward?.discountType || reward?.discount_type || '').toLowerCase();
+}
+
+function getRewardTargetMenuItemId(reward) {
+  return reward?.targetMenuItemId || reward?.target_menu_item_id || null;
+}
+
+function getRewardTargetCategoryId(reward) {
+  return reward?.targetCategoryId || reward?.target_category_id || null;
+}
+
 function getItemMenuItemId(item) {
   return item?.menu_item_id || item?.id || item?.item_id || null;
 }
@@ -133,6 +149,65 @@ function calculateBogoDiscount(items = [], coupon = null) {
   return toMoneyNumber(discount);
 }
 
+function calculateFreeOneItemDiscount(items = [], matcher = () => false) {
+  const matchingUnitPrices = [];
+
+  items.forEach((item) => {
+    if (!matcher(item)) return;
+
+    const unitPrice = getItemUnitPrice(item);
+    const quantity = getItemQuantity(item);
+
+    if (unitPrice <= 0 || quantity <= 0) return;
+
+    for (let index = 0; index < quantity; index += 1) {
+      matchingUnitPrices.push(unitPrice);
+    }
+  });
+
+  if (matchingUnitPrices.length === 0) return 0;
+
+  matchingUnitPrices.sort((a, b) => a - b);
+
+  return toMoneyNumber(matchingUnitPrices[0]);
+}
+
+export function calculateRewardDiscount({ items = [], rewards = [] } = {}) {
+  if (!Array.isArray(rewards) || rewards.length === 0) return 0;
+
+  let rewardDiscount = 0;
+
+  rewards.forEach((reward) => {
+    const rewardType = getRewardType(reward);
+    const discountType = getRewardDiscountType(reward);
+
+    if (rewardType === 'free_menu_item' || discountType === 'free_item') {
+      const targetMenuItemId = getRewardTargetMenuItemId(reward);
+      if (!targetMenuItemId) return;
+
+      rewardDiscount += calculateFreeOneItemDiscount(
+        items,
+        (item) => getItemMenuItemId(item) === targetMenuItemId
+      );
+
+      return;
+    }
+
+    if (rewardType === 'free_category' || discountType === 'free_category') {
+      const targetCategoryId = getRewardTargetCategoryId(reward);
+      if (!targetCategoryId) return;
+
+      rewardDiscount += calculateFreeOneItemDiscount(
+        items,
+        (item) => getItemCategoryId(item) === targetCategoryId
+      );
+    }
+  });
+
+  const subtotal = calculateCartSubtotal(items);
+  return toMoneyNumber(Math.min(Math.max(rewardDiscount, 0), subtotal));
+}
+
 export function getCouponMinimumStatus({ subtotal = 0, coupon = null } = {}) {
   const orderSubtotal = toMoneyNumber(subtotal);
   const minimumOrderAmount = toMoneyNumber(getCouponMinimumOrder(coupon));
@@ -186,13 +261,18 @@ export function calculateCouponDiscount({ subtotal = 0, coupon = null, items = [
 export function calculateCheckoutTotals({
   items = [],
   coupon = null,
+  rewards = [],
   taxRate = 0,
   pointsPerDollar = 1,
   rewardRounding = 'down',
 } = {}) {
   const subtotal = calculateCartSubtotal(items);
   const minimumStatus = getCouponMinimumStatus({ subtotal, coupon });
-  const discountAmount = calculateCouponDiscount({ subtotal, coupon, items });
+  const couponDiscountAmount = calculateCouponDiscount({ subtotal, coupon, items });
+  const rewardDiscountAmount = calculateRewardDiscount({ items, rewards });
+  const discountAmount = toMoneyNumber(
+    Math.min(couponDiscountAmount + rewardDiscountAmount, subtotal)
+  );
   const taxableAmount = toMoneyNumber(Math.max(subtotal - discountAmount, 0));
   const taxAmount = toMoneyNumber(taxableAmount * (Number(taxRate || 0) / 100));
   const total = toMoneyNumber(taxableAmount + taxAmount);
@@ -200,6 +280,8 @@ export function calculateCheckoutTotals({
 
   return {
     subtotal,
+    couponDiscountAmount,
+    rewardDiscountAmount,
     discountAmount,
     taxableAmount,
     taxAmount,

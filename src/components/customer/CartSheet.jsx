@@ -301,7 +301,42 @@ export default function CartSheet() {
         .order('created_at', { ascending: false });
 
       if (error) return [];
-      return Array.isArray(data) ? data : [];
+
+      const checkoutRewards = Array.isArray(data) ? data : [];
+      const rewardIds = checkoutRewards
+        .map((reward) => reward.reward_id)
+        .filter(Boolean);
+
+      if (rewardIds.length === 0) return checkoutRewards;
+
+      const { data: rewardDetails, error: rewardDetailsError } = await supabase
+        .from('rewards')
+        .select('id, reward_type, target_menu_item_id, target_category_id, discount_type, discount_value')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .in('id', rewardIds);
+
+      if (rewardDetailsError) return checkoutRewards;
+
+      const rewardDetailsById = new Map(
+        (rewardDetails || []).map((reward) => [String(reward.id), reward])
+      );
+
+      return checkoutRewards.map((checkoutReward) => {
+        const rewardDetail = rewardDetailsById.get(String(checkoutReward.reward_id));
+
+        return {
+          ...checkoutReward,
+          reward_type: checkoutReward.reward_type || rewardDetail?.reward_type || 'points_reward',
+          target_menu_item_id:
+            checkoutReward.target_menu_item_id || rewardDetail?.target_menu_item_id || null,
+          target_category_id:
+            checkoutReward.target_category_id || rewardDetail?.target_category_id || null,
+          discount_type:
+            checkoutReward.discount_type || rewardDetail?.discount_type || null,
+          discount_value:
+            checkoutReward.discount_value ?? rewardDetail?.discount_value ?? 0,
+        };
+      });
     },
   });
 
@@ -332,11 +367,21 @@ const pricingCoupon = pendingDeals[0]
     }
   : null;
 
+  const pricingRewards = pendingRewards.map((reward) => ({
+    ...reward,
+    rewardType: reward.reward_type || 'points_reward',
+    discountType: reward.discount_type || '',
+    discountValue: Number(reward.discount_value || 0),
+    targetMenuItemId: reward.target_menu_item_id || null,
+    targetCategoryId: reward.target_category_id || null,
+  }));
+
   const checkoutTotals = useMemo(
     () =>
       calculateCheckoutTotals({
         items: cartItems,
         coupon: pricingCoupon,
+        rewards: pricingRewards,
         taxRate,
         pointsPerDollar,
         rewardRounding,
@@ -344,6 +389,7 @@ const pricingCoupon = pendingDeals[0]
     [
   cartItems,
   pricingCoupon,
+  pricingRewards,
   taxRate,
   pointsPerDollar,
   rewardRounding,
@@ -352,6 +398,8 @@ const pricingCoupon = pendingDeals[0]
 
   const subtotal = checkoutTotals.subtotal;
   const discountAmount = checkoutTotals.discountAmount;
+  const couponDiscountAmount = checkoutTotals.couponDiscountAmount || 0;
+  const rewardDiscountAmount = checkoutTotals.rewardDiscountAmount || 0;
   const taxableAmount = checkoutTotals.taxableAmount;
   const taxAmount = checkoutTotals.taxAmount;
   const total = checkoutTotals.total;
@@ -418,6 +466,12 @@ const pricingCoupon = pendingDeals[0]
     rewardName: reward.reward_name || 'Reward Added',
     rewardDescription: reward.reward_description || '',
     pointsRequired: Number(reward.points_required || 0),
+    rewardType: reward.reward_type || 'points_reward',
+    discountType: reward.discount_type || '',
+    discountValue: Number(reward.discount_value || 0),
+    targetMenuItemId: reward.target_menu_item_id || null,
+    targetCategoryId: reward.target_category_id || null,
+    discountAmount: Number(reward.reward_discount_amount || 0),
     status: 'pending',
   }));
 
@@ -435,9 +489,18 @@ const pricingCoupon = pendingDeals[0]
           target_menu_item_id: d.target_menu_item_id || null,
           target_category_id: d.target_category_id || null,
         })),
-        pendingRewards: pendingRewards.map((r) => r.id),
+        pendingRewards: pendingRewards.map((r) => ({
+          id: r.id,
+          reward_id: r.reward_id,
+          reward_type: r.reward_type || 'points_reward',
+          target_menu_item_id: r.target_menu_item_id || null,
+          target_category_id: r.target_category_id || null,
+          discount_type: r.discount_type || null,
+        })),
         subtotal: subtotal.toFixed(2),
         discountAmount: discountAmount.toFixed(2),
+        couponDiscountAmount: couponDiscountAmount.toFixed(2),
+        rewardDiscountAmount: rewardDiscountAmount.toFixed(2),
         taxableAmount: taxableAmount.toFixed(2),
         taxAmount: taxAmount.toFixed(2),
         total: total.toFixed(2),
@@ -453,6 +516,8 @@ const pricingCoupon = pendingDeals[0]
       pendingRewards,
       subtotal,
       discountAmount,
+      couponDiscountAmount,
+      rewardDiscountAmount,
       taxableAmount,
       taxAmount,
       total,
@@ -1036,10 +1101,19 @@ const pricingCoupon = pendingDeals[0]
 
                 {discountAmount > 0 && (
                   <>
-                    <div className="flex justify-between text-sm text-emerald-500 font-medium">
-                      <span>Coupon Discount</span>
-                      <span>-${discountAmount.toFixed(2)}</span>
-                    </div>
+                    {couponDiscountAmount > 0 && (
+                      <div className="flex justify-between text-sm text-emerald-500 font-medium">
+                        <span>Coupon Discount</span>
+                        <span>-${couponDiscountAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+
+                    {rewardDiscountAmount > 0 && (
+                      <div className="flex justify-between text-sm text-emerald-500 font-medium">
+                        <span>Reward Discount</span>
+                        <span>-${rewardDiscountAmount.toFixed(2)}</span>
+                      </div>
+                    )}
 
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Discounted Subtotal</span>
