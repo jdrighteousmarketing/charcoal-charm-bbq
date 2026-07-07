@@ -144,14 +144,32 @@ function dealHasMatchingCartItem(deal, items = []) {
   const targetCategoryId = deal?.target_category_id || null;
 
   if (targetMenuItemId) {
-    return items.some(
-      (item) => String(getItemMenuItemId(item) || '') === String(targetMenuItemId)
-    );
+    const matchingQuantity = items
+      .filter(
+        (item) =>
+          String(getItemMenuItemId(item) || '') ===
+          String(targetMenuItemId)
+      )
+      .reduce(
+        (sum, item) => sum + Number(item.quantity || 0),
+        0
+      );
+
+    if (
+      String(deal?.discount_type || '').toLowerCase() ===
+      'bogo'
+    ) {
+      return matchingQuantity >= 2;
+    }
+
+    return matchingQuantity >= 1;
   }
 
   if (targetCategoryId) {
     return items.some(
-      (item) => String(getItemCategoryId(item) || '') === String(targetCategoryId)
+      (item) =>
+        String(getItemCategoryId(item) || '') ===
+        String(targetCategoryId)
     );
   }
 
