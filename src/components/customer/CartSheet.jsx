@@ -1,3 +1,4 @@
+import RewardRequirementCard from '@/components/customer/RewardRequirementCard';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -70,6 +71,91 @@ function getCartItemDisplayName(item) {
   if (item.display_name) return item.display_name;
   if (item.selected_size) return `${item.selected_size} ${item.name}`;
   return item.name || 'Item';
+}
+
+
+function getRewardType(reward) {
+  return String(reward?.rewardType || reward?.reward_type || 'points_reward').toLowerCase();
+}
+
+function getRewardDiscountType(reward) {
+  return String(reward?.discountType || reward?.discount_type || '').toLowerCase();
+}
+
+function getRewardTargetMenuItemId(reward) {
+  return reward?.targetMenuItemId || reward?.target_menu_item_id || null;
+}
+
+function getRewardTargetCategoryId(reward) {
+  return reward?.targetCategoryId || reward?.target_category_id || null;
+}
+
+function getItemMenuItemId(item) {
+  return item?.menu_item_id || item?.id || item?.item_id || null;
+}
+
+function getItemCategoryId(item) {
+  return item?.category_id || item?.categoryId || item?.menu_category_id || null;
+}
+
+function rewardNeedsMatchingCartItem(reward) {
+  const rewardType = getRewardType(reward);
+  const discountType = getRewardDiscountType(reward);
+
+  return (
+    rewardType === 'free_menu_item' ||
+    rewardType === 'free_category' ||
+    discountType === 'free_item' ||
+    discountType === 'free_category'
+  );
+}
+
+function rewardHasMatchingCartItem(reward, items = []) {
+  const rewardType = getRewardType(reward);
+  const discountType = getRewardDiscountType(reward);
+  const targetMenuItemId = getRewardTargetMenuItemId(reward);
+  const targetCategoryId = getRewardTargetCategoryId(reward);
+
+  if (rewardType === 'free_menu_item' || discountType === 'free_item') {
+    if (!targetMenuItemId) return false;
+
+    return items.some(
+      (item) => String(getItemMenuItemId(item) || '') === String(targetMenuItemId)
+    );
+  }
+
+  if (rewardType === 'free_category' || discountType === 'free_category') {
+    if (!targetCategoryId) return false;
+
+    return items.some(
+      (item) => String(getItemCategoryId(item) || '') === String(targetCategoryId)
+    );
+  }
+
+  return true;
+}
+
+function dealNeedsMatchingCartItem(deal) {
+  return Boolean(deal?.target_menu_item_id || deal?.target_category_id);
+}
+
+function dealHasMatchingCartItem(deal, items = []) {
+  const targetMenuItemId = deal?.target_menu_item_id || null;
+  const targetCategoryId = deal?.target_category_id || null;
+
+  if (targetMenuItemId) {
+    return items.some(
+      (item) => String(getItemMenuItemId(item) || '') === String(targetMenuItemId)
+    );
+  }
+
+  if (targetCategoryId) {
+    return items.some(
+      (item) => String(getItemCategoryId(item) || '') === String(targetCategoryId)
+    );
+  }
+
+  return true;
 }
 
 function CustomerSuccessOverlay({ show, onContinue }) {
@@ -408,6 +494,33 @@ const pricingCoupon = pendingDeals[0]
   const minimumOrderRemaining = checkoutTotals.minimumOrderRemaining || 0;
   const couponMinimumNotMet = checkoutTotals.couponMinimumNotMet || false;
 
+
+  const unappliedRewardIds = useMemo(() => {
+    return pendingRewards
+      .filter(
+        (reward) =>
+          rewardNeedsMatchingCartItem(reward) &&
+          !rewardHasMatchingCartItem(reward, cartItems)
+      )
+      .map((reward) => reward.id);
+  }, [pendingRewards, cartItems]);
+
+  const hasUnappliedRewards = unappliedRewardIds.length > 0;
+
+const unappliedDealIds = useMemo(() => {
+  return pendingDeals
+    .filter(
+      (deal) =>
+        dealNeedsMatchingCartItem(deal) &&
+        !dealHasMatchingCartItem(deal, cartItems)
+    )
+    .map((deal) => deal.id);
+}, [pendingDeals, cartItems]);
+
+const hasUnappliedDeals = unappliedDealIds.length > 0;
+const hasBlockedCheckoutRequirements =
+  hasUnappliedRewards || hasUnappliedDeals || couponMinimumNotMet;
+
   const customerName =
     customerProfile?.full_name || customerProfile?.name || 'Customer';
 
@@ -655,6 +768,7 @@ const pricingCoupon = pendingDeals[0]
     if (!hasCheckoutContent) return;
     if (checkoutQrValue) return;
     if (settingsLoading || !restaurantSettings) return;
+    if (hasBlockedCheckoutRequirements) return;
 
     createCheckoutQr();
   }, [
@@ -664,6 +778,7 @@ const pricingCoupon = pendingDeals[0]
     checkoutSignature,
     settingsLoading,
     restaurantSettings,
+    hasBlockedCheckoutRequirements,
   ]);
 
   useEffect(() => {
@@ -1033,14 +1148,29 @@ const pricingCoupon = pendingDeals[0]
                         </p>
                       </div>
                     )}
+                    {unappliedDealIds.includes(deal.id) && (
+  <RewardRequirementCard
+    type="deal"
+    deal={deal}
+    restaurantId={RESTAURANT_ID}
+    cartItems={cartItems}
+    onAdded={async () => {
+      resetActiveCheckoutSession();
+      await refetchPendingDeals();
+    }}
+  />
+)}
                   </div>
                 ))}
 
-                {pendingRewards.map((reward) => (
-                  <div
-                    key={reward.id}
-                    className="rounded-xl border-2 border-emerald-500/50 bg-emerald-500/10 p-4 relative"
-                  >
+                {pendingRewards.map((reward) => {
+                  const rewardNotApplied = unappliedRewardIds.includes(reward.id);
+
+                  return (
+                    <div
+                      key={reward.id}
+                      className="rounded-xl border-2 border-emerald-500/50 bg-emerald-500/10 p-4 relative"
+                    >
                     <button
                       type="button"
                       aria-label="Remove reward"
@@ -1074,8 +1204,21 @@ const pricingCoupon = pendingDeals[0]
                     <p className="text-sm text-muted-foreground mt-1 pr-10">
                       {Number(reward.points_required || 0)} pts redeemed
                     </p>
+
+                    {rewardNotApplied && (
+                      <RewardRequirementCard
+                        reward={reward}
+                        restaurantId={RESTAURANT_ID}
+                        cartItems={cartItems}
+                        onAdded={async () => {
+                          resetActiveCheckoutSession();
+                          await refetchPendingRewards();
+                        }}
+                      />
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1148,30 +1291,41 @@ const pricingCoupon = pendingDeals[0]
                   Show this QR code to an employee or admin to finish checkout.
                 </p>
 
-                {creatingCheckout && !checkoutQrValue ? (
-                  <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
-                    Preparing QR...
-                  </div>
-                ) : checkoutQrValue ? (
-                  <>
-                    <div className="flex justify-center bg-white rounded-xl p-5">
-                      <QRCodeSVG
-                        value={checkoutQrValue}
-                        size={260}
-                        level="H"
-                        includeMargin
-                      />
-                    </div>
+                {hasBlockedCheckoutRequirements ? (
+  <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 p-5 text-sm">
+    <p className="font-semibold text-yellow-700 dark:text-yellow-300">
+      Add the required reward/coupon item before checkout.
+    </p>
 
-                    <p className="text-xs text-muted-foreground mt-3">
-                      Checkout Code: {checkoutCode}
-                    </p>
-                  </>
-                ) : (
-                  <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
-                    QR will appear automatically.
-                  </div>
-                )}
+    <p className="text-muted-foreground mt-1">
+      Your QR code will appear after all rewards and coupons apply.
+    </p>
+  </div>
+) : creatingCheckout && !checkoutQrValue ? (
+  <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
+    Preparing QR...
+  </div>
+) : checkoutQrValue ? (
+  <>
+    <div className="flex justify-center bg-white rounded-xl p-5">
+      <QRCodeSVG
+        value={checkoutQrValue}
+        size={260}
+        level="H"
+        includeMargin
+      />
+    </div>
+
+    <p className="text-xs text-muted-foreground mt-3">
+      Checkout Code: {checkoutCode}
+    </p>
+  </>
+) : (
+  <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
+    QR will appear automatically.
+  </div>
+)}
+                
 
                 {waitingForCompletion ? (
                   <div className="mt-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3">

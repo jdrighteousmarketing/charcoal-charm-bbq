@@ -122,22 +122,19 @@ export default function CheckoutReview() {
   const checkoutTotals = calculateCheckoutTotals({
     items,
     coupon: claimedCoupon,
+    rewards: claimedRewards,
     taxRate: 6,
     pointsPerDollar: rewardSettings.pointsPerDollar,
     rewardRounding: rewardSettings.rewardRounding || 'down',
   });
 
-  const checkoutSubtotal = Number(checkoutData.subtotal ?? checkoutTotals.subtotal ?? 0);
-  const checkoutDiscountAmount = Number(
-    checkoutData.discountAmount ??
-      checkoutData.discount_amount ??
-      claimedCoupon?.discountAmount ??
-      claimedCoupon?.discount_amount ??
-      checkoutTotals.discountAmount ??
-      0
-  );
-  const checkoutTaxAmount = Number(checkoutData.taxAmount ?? checkoutData.tax_amount ?? checkoutTotals.taxAmount ?? 0);
-  const checkoutTotal = Number(checkoutData.total ?? checkoutData.total_amount ?? checkoutTotals.total ?? 0);
+  const checkoutSubtotal = Number(checkoutTotals.subtotal ?? checkoutData.subtotal ?? 0);
+  const checkoutCouponDiscountAmount = Number(checkoutTotals.couponDiscountAmount || 0);
+  const checkoutRewardDiscountAmount = Number(checkoutTotals.rewardDiscountAmount || 0);
+  const checkoutDiscountAmount = Number(checkoutTotals.discountAmount || 0);
+  const checkoutTaxableAmount = Number(checkoutTotals.taxableAmount ?? Math.max(checkoutSubtotal - checkoutDiscountAmount, 0));
+  const checkoutTaxAmount = Number(checkoutTotals.taxAmount ?? checkoutData.taxAmount ?? checkoutData.tax_amount ?? 0);
+  const checkoutTotal = Number(checkoutTotals.total ?? checkoutData.total ?? checkoutData.total_amount ?? 0);
 
   useEffect(() => {
     const loadRewardSettings = async () => {
@@ -654,10 +651,26 @@ const previewPointsToAward = settingsReady
           </div>
 
           {checkoutDiscountAmount > 0 && (
-            <div className="flex justify-between text-emerald-500 font-semibold">
-              <span>Coupon Discount</span>
-              <span>-${money(checkoutDiscountAmount)}</span>
-            </div>
+            <>
+              {checkoutCouponDiscountAmount > 0 && (
+                <div className="flex justify-between text-emerald-500 font-semibold">
+                  <span>Coupon Discount</span>
+                  <span>-${money(checkoutCouponDiscountAmount)}</span>
+                </div>
+              )}
+
+              {checkoutRewardDiscountAmount > 0 && (
+                <div className="flex justify-between text-emerald-500 font-semibold">
+                  <span>Reward Discount</span>
+                  <span>-${money(checkoutRewardDiscountAmount)}</span>
+                </div>
+              )}
+
+              <div className="flex justify-between">
+                <span>Discounted Subtotal</span>
+                <span>${money(checkoutTaxableAmount)}</span>
+              </div>
+            </>
           )}
 
           <div className="flex justify-between">

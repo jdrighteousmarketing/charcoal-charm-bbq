@@ -165,11 +165,17 @@ export function useCart(customerProfileId) {
           menuItem.category ||
           null;
 
+        const categoryId =
+          menuItem.category_id ||
+          menuItem.categoryId ||
+          menuItem.menu_category_id ||
+          null;
+
         newItems = [
           ...currentItems,
           {
             cart_item_key: cartItemKey,
-            menu_item_id: menuItem.id,
+            menu_item_id: menuItem.id || menuItem.menu_item_id || null,
             name: menuItem.name,
             display_name:
               menuItem.display_name ||
@@ -178,6 +184,8 @@ export function useCart(customerProfileId) {
                 : menuItem.name),
             categoryName,
             category_name: categoryName,
+            category_id: categoryId,
+            menu_category_id: categoryId,
             selected_size: menuItem.selected_size || null,
             selected_size_id: menuItem.selected_size_id || null,
             price: Number(menuItem.price || 0),
@@ -217,7 +225,10 @@ export function useCart(customerProfileId) {
 
     const newItems = latestCart.items.filter((item) => {
       const itemKey = item.cart_item_key || `${item.menu_item_id}__regular`;
-      return itemKey !== cartItemKeyOrMenuItemId && item.menu_item_id !== cartItemKeyOrMenuItemId;
+      return (
+        itemKey !== cartItemKeyOrMenuItemId &&
+        item.menu_item_id !== cartItemKeyOrMenuItemId
+      );
     });
 
     if (newItems.length === 0) {
