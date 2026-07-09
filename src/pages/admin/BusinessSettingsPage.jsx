@@ -25,28 +25,50 @@ const DEFAULT_HOURS = [
 ];
 
 const DEFAULT_SETTINGS = {
-  business_name: 'My Restaurant Name',
-  tagline: 'Fresh food, fast service, real rewards.',
+  business_name: restaurantConfig.restaurantName,
+
+  tagline: restaurantConfig.defaultTagline,
+
   logo_url: '',
+
   background_image_url: '',
+
   hero_image_url: '',
-  overlay_color: '#000000',
+
+  overlay_color: '#ff7b00',
+
   overlay_opacity: 0.5,
-  phone: '',
-  email: '',
-  website: '',
+
+  phone: restaurantConfig.defaultPhone,
+
+  email: restaurantConfig.defaultSupportEmail,
+
+  website: restaurantConfig.defaultWebsite,
+
   facebook_url: '',
+
   instagram_url: '',
-  address: 'Your Address Here',
+
+  address: restaurantConfig.defaultAddress,
+
   latitude: '',
+
   longitude: '',
+
   current_location: '',
+
   business_hours: DEFAULT_HOURS,
+
   privacy_policy_url: '',
+
   terms_of_service_url: '',
+
   account_deletion_url: '',
-  points_per_dollar: 1,
-  max_points_per_customer: 500,
+
+  points_per_dollar: restaurantConfig.defaultPointsPerDollar,
+
+  max_points_per_customer: 1000,
+
   reward_rounding: 'down',
 };
 

@@ -641,13 +641,17 @@ export default function BusinessInsights() {
             <label className="flex items-center gap-2 rounded-xl border border-primary/30 bg-background/80 px-3 py-2 text-xs font-semibold text-foreground shadow-sm">
               <CalendarDays className="h-4 w-4 text-primary" />
               <select
-                value={selectedPeriod}
+               value={selectedPeriod}
                 onChange={(event) => setSelectedPeriod(event.target.value)}
-                className="bg-transparent text-xs font-semibold outline-none"
-              >
+               className="bg-transparent text-xs font-semibold text-white outline-none"
+                >
                 {periodOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+                  <option
+                   key={option.value}
+                   value={option.value}
+                   className="bg-[#1a120d] text-white"
+                    >
+                  {option.label}
                   </option>
                 ))}
               </select>

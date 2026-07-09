@@ -1,3 +1,4 @@
+import { restaurantConfig } from '@/config/restaurantConfig';
 import React from "react";
 import { Link } from "react-router-dom";
 
@@ -27,8 +28,8 @@ export default function Register() {
 
       {/* Full-width hero image */}
       <img
-        src="https://media.base44.com/images/public/6a2857eb595ac55022c2e9aa/7aeff7b05_Pitstopcroppedimage.png"
-        alt="The Pit Stop — Earn Points. Get Rewards. Fuel Your Appetite."
+  src={restaurantConfig.signupHeroImage}
+  alt={`${restaurantConfig.restaurantName} Sign Up`}
         className="w-full block"
         style={{ display: "block" }}
       />
