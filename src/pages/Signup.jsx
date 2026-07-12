@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { restaurantConfig } from '@/config/restaurantConfig';
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
@@ -11,7 +12,9 @@ import AuthLayout from "@/components/AuthLayout";
 const RESTAURANT_ID = restaurantConfig.id;
 
 function createCustomerCode() {
-  return "PIT-" + Math.floor(10000 + Math.random() * 90000);
+  const prefix = restaurantConfig.customerCodePrefix || "CUS";
+
+  return `${prefix}-${Math.floor(10000 + Math.random() * 90000)}`;
 }
 
 export default function Signup() {

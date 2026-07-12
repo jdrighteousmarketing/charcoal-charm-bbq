@@ -1,65 +1,96 @@
+// @ts-nocheck
 import React from "react";
+import { restaurantConfig } from "@/config/restaurantConfig";
 
-export default function AuthLayout({ icon: Icon, title, subtitle, footer, children }) {
+export default function AuthLayout({
+  icon: Icon,
+  title,
+  subtitle,
+  footer,
+  children,
+}) {
   return (
     <div
-      className="min-h-screen flex items-center justify-center px-4 py-10 relative overflow-hidden"
+      className="relative min-h-screen overflow-hidden"
       style={{
-        background: 'radial-gradient(ellipse at top, #3a1a00 0%, #1a0e00 40%, #0d0d0d 100%)',
+        background:
+          "radial-gradient(ellipse at top, #3a1a00 0%, #1a0e00 40%, #080604 100%)",
       }}
     >
-      {/* Flame glow top */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-48 rounded-full blur-3xl opacity-30"
-        style={{ background: 'radial-gradient(ellipse, #f97316 0%, #dc2626 60%, transparent 100%)' }} />
-
-      {/* Checkered stripe bottom */}
-      <div className="absolute bottom-0 left-0 right-0 h-5 opacity-60"
+      {/* Flame glow */}
+      <div
+        className="pointer-events-none absolute left-1/2 top-0 h-48 w-96 -translate-x-1/2 rounded-full opacity-30 blur-3xl"
         style={{
-          backgroundImage: 'repeating-linear-gradient(90deg, #f59e0b 0px, #f59e0b 20px, #111 20px, #111 40px)',
-        }}
-      />
-      <div className="absolute bottom-5 left-0 right-0 h-3 opacity-40"
-        style={{
-          backgroundImage: 'repeating-linear-gradient(90deg, #111 0px, #111 20px, #f59e0b 20px, #f59e0b 40px)',
+          background:
+            "radial-gradient(ellipse, #ff5a00 0%, #dc2626 60%, transparent 100%)",
         }}
       />
 
-      <div className="w-full max-w-md relative z-10">
-        {/* Logo / Brand */}
-        <div className="text-center mb-8">
-          <div className="inline-block mb-3">
-            <div className="relative">
-              {/* Pit Stop logo text */}
-              <p className="font-display text-xs tracking-[0.3em] uppercase text-amber-400/80 mb-1">Welcome to</p>
-              <h1 className="font-display text-5xl font-normal tracking-wider text-white drop-shadow-lg"
-                style={{ fontFamily: "'Bebas Neue', sans-serif", textShadow: '0 0 30px rgba(249,115,22,0.5), 0 2px 4px rgba(0,0,0,0.8)' }}>
-                THE PIT STOP
-              </h1>
-              <div className="h-0.5 w-full mt-1"
-                style={{ background: 'linear-gradient(90deg, transparent, #f59e0b, #f97316, #f59e0b, transparent)' }} />
-            </div>
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-md flex-col">
+        {/* Restaurant branding */}
+<div className="mb-7 text-center">
+  <div className="relative left-1/2 w-screen max-w-[520px] -translate-x-1/2 overflow-hidden">
+    <img
+      src={restaurantConfig.authHeroImage}
+      alt={`${restaurantConfig.restaurantName} branding`}
+      className="block h-auto w-full"
+    />
+  </div>
+
+          <div
+            className="mx-auto mb-4 h-0.5 w-4/5"
+            style={{
+              background:
+                "linear-gradient(90deg, transparent, #f59e0b, #ff5a00, #f59e0b, transparent)",
+            }}
+          />
+
+          <div className="flex items-center justify-center gap-2">
+            {Icon && <Icon className="h-5 w-5 text-amber-400" />}
+
+            <p
+              className="text-sm font-medium uppercase tracking-widest"
+              style={{
+                color: "#f59e0b",
+                fontFamily: "'Barlow Condensed', sans-serif",
+              }}
+            >
+              {title}
+            </p>
           </div>
-          <p className="text-sm font-medium tracking-widest uppercase"
-            style={{ color: '#f59e0b', fontFamily: "'Barlow Condensed', sans-serif" }}>
-            {title}
-          </p>
-          {subtitle && <p className="text-white/50 mt-1 text-sm">{subtitle}</p>}
+
+          {subtitle && (
+            <p className="mt-1 text-sm text-white/55">{subtitle}</p>
+          )}
         </div>
 
-        {/* Card */}
-        <div className="rounded-2xl border p-8"
+        {/* Form card */}
+        <div
+          className="rounded-2xl border p-6 sm:p-8"
           style={{
-            background: 'rgba(20, 10, 0, 0.85)',
-            borderColor: 'rgba(245, 158, 11, 0.25)',
-            backdropFilter: 'blur(12px)',
-            boxShadow: '0 0 40px rgba(249,115,22,0.1), 0 20px 60px rgba(0,0,0,0.6)',
-          }}>
+            background: "rgba(20, 10, 0, 0.92)",
+            borderColor: "rgba(245, 158, 11, 0.35)",
+            boxShadow:
+              "0 0 40px rgba(249,115,22,0.12), 0 20px 60px rgba(0,0,0,0.6)",
+          }}
+        >
           {children}
         </div>
 
         {footer && (
-          <p className="text-center text-sm text-white/50 mt-6">{footer}</p>
+          <p className="mt-6 text-center text-sm text-white/55">{footer}</p>
         )}
+
+        {/* Restaurant-specific footer artwork */}
+        <div className="mt-3 w-full overflow-hidden">
+          <img
+            src={restaurantConfig.registerFooterImage}
+            alt=""
+            aria-hidden="true"
+            className="block h-24 w-full object-cover"
+            style={{ objectPosition: "center 58%" }}
+          />
+        </div>
       </div>
     </div>
   );

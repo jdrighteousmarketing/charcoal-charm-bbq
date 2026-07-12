@@ -1,19 +1,20 @@
+// @ts-nocheck
 export const restaurantConfig = {
   // =========================================================================
   // Restaurant Identity
   // =========================================================================
-  // Never change this after a restaurant is created.
+  // Never change this after the restaurant is created.
   // It uniquely identifies the restaurant throughout the database.
-  id: 'pit_stop_mobile',
-
+  id: 'charcoal_charm_bbq',
+  customerCodePrefix: 'CCB',
   // =========================================================================
   // Branding
   // =========================================================================
   appName:
-    import.meta.env.VITE_APP_NAME || 'Pit Stop Mobile',
+    import.meta.env.VITE_APP_NAME || 'Charcoal Charm BBQ',
 
   restaurantName:
-    import.meta.env.VITE_RESTAURANT_NAME || 'Pit Stop Mobile',
+    import.meta.env.VITE_RESTAURANT_NAME || 'Charcoal Charm BBQ',
 
   logo:
     import.meta.env.VITE_RESTAURANT_LOGO ||
@@ -23,18 +24,23 @@ export const restaurantConfig = {
     import.meta.env.VITE_SIGNUP_HERO_IMAGE ||
     '/branding/signup-hero.png',
 
+    registerFooterImage: '/branding/register-footer.png',
+
   primaryColor:
-    import.meta.env.VITE_PRIMARY_COLOR || '#C8102E',
+    import.meta.env.VITE_PRIMARY_COLOR || '#FF5A00',
+
+    authHeroImage: '/branding/auth-hero.png',
 
   // =========================================================================
   // Default Contact Information
   // =========================================================================
   defaultSupportEmail:
     import.meta.env.VITE_SUPPORT_EMAIL ||
-    'support@pitstopmobile.com',
+    'charcoalcharmbbq@outlook.com',
 
   defaultPhone:
-    import.meta.env.VITE_RESTAURANT_PHONE || '',
+    import.meta.env.VITE_RESTAURANT_PHONE ||
+    '270-634-4250',
 
   defaultAddress:
     import.meta.env.VITE_RESTAURANT_ADDRESS || '',
@@ -47,7 +53,7 @@ export const restaurantConfig = {
   // =========================================================================
   defaultTagline:
     import.meta.env.VITE_DEFAULT_TAGLINE ||
-    'Fresh food, rewards, and fast service.',
+    'Grilled to perfection, flavored with affection',
 
   defaultTaxRate: 0.06,
 

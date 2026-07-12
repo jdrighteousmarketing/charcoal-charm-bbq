@@ -102,17 +102,74 @@ export default function Register() {
 
       </div>
 
-      {/* Checkered bottom stripe */}
-      <div className="mt-auto">
-        <div
-          className="h-4"
-          style={{ backgroundImage: "repeating-linear-gradient(90deg, #f59e0b 0px, #f59e0b 20px, #1a0e00 20px, #1a0e00 40px)" }}
-        />
-        <div
-          className="h-3 opacity-60"
-          style={{ backgroundImage: "repeating-linear-gradient(90deg, #1a0e00 0px, #1a0e00 20px, #f59e0b 20px, #f59e0b 40px)" }}
-        />
-      </div>
+     {/* Charcoal Charm BBQ Footer */}
+<div className="relative mt-2 w-full overflow-hidden bg-[#080604]">
+  {/* Floating embers */}
+  <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
+    {[
+      { left: "8%", delay: "0s", duration: "5s", size: "3px" },
+      { left: "19%", delay: "1.2s", duration: "6s", size: "2px" },
+      { left: "34%", delay: "2.4s", duration: "5.5s", size: "3px" },
+      { left: "52%", delay: "0.8s", duration: "6.5s", size: "2px" },
+      { left: "68%", delay: "3s", duration: "5.2s", size: "3px" },
+      { left: "82%", delay: "1.8s", duration: "6.2s", size: "2px" },
+      { left: "93%", delay: "3.8s", duration: "5.8s", size: "3px" },
+    ].map((ember, index) => (
+      <span
+        key={index}
+        className="absolute bottom-10 rounded-full bg-orange-500"
+        style={{
+          left: ember.left,
+          width: ember.size,
+          height: ember.size,
+          animation: `charcoalEmber ${ember.duration} linear ${ember.delay} infinite`,
+          boxShadow:
+            "0 0 6px rgba(249,115,22,0.95), 0 0 12px rgba(245,158,11,0.65)",
+        }}
+      />
+    ))}
+  </div>
+
+  <img
+    src={restaurantConfig.registerFooterImage}
+    alt=""
+    aria-hidden="true"
+    className="relative z-0 block h-28 w-full object-cover"
+style={{ objectPosition: "center 58%" }}
+  />
+
+  <style>
+    {`
+      @keyframes charcoalEmber {
+        0% {
+          transform: translateY(8px) translateX(0) scale(0.7);
+          opacity: 0;
+        }
+
+        15% {
+          opacity: 0.9;
+        }
+
+        55% {
+          transform: translateY(-35px) translateX(6px) scale(1);
+          opacity: 0.75;
+        }
+
+        100% {
+  transform: translateY(-55px) translateX(-5px) scale(0.4);
+  opacity: 0;
+}
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        [style*="charcoalEmber"] {
+          animation: none !important;
+          opacity: 0;
+        }
+      }
+    `}
+  </style>
+</div>
     </div>
   );
 }
