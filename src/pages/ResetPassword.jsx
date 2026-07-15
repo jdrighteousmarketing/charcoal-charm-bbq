@@ -1,53 +1,145 @@
-import React, { useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Lock, Loader2, AlertTriangle } from "lucide-react";
-import AuthLayout from "@/components/AuthLayout";
+// @ts-nocheck
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { supabase } from '@/lib/supabaseClient';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Lock, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import AuthLayout from '@/components/AuthLayout';
 
 export default function ResetPassword() {
-  const [searchParams] = useSearchParams();
-  const resetToken = searchParams.get("token");
-
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [hasRecoverySession, setHasRecoverySession] = useState(false);
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const checkRecoverySession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (mounted && session) {
+        setHasRecoverySession(true);
+      }
+
+      if (mounted) {
+        setCheckingSession(false);
+      }
+    };
+
+    checkRecoverySession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+
+      if (event === 'PASSWORD_RECOVERY' && session) {
+        setHasRecoverySession(true);
+        setCheckingSession(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
-    if (newPassword !== confirmPassword) {
-      setError("Passwords do not match");
+    setError('');
+
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters.');
       return;
     }
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
     setLoading(true);
+
     try {
-      await base44.auth.resetPassword({ resetToken, newPassword });
-      window.location.href = "/login";
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setPasswordUpdated(true);
     } catch (err) {
-      setError(err.message || "Failed to reset password");
+      console.error('Password reset failed:', err);
+      setError(err?.message || 'Failed to reset password.');
     } finally {
       setLoading(false);
     }
   };
 
-  if (!resetToken) {
+  if (checkingSession) {
+    return (
+      <AuthLayout
+        icon={Loader2}
+        title="Checking reset link"
+        subtitle="Please wait while we verify your password reset request"
+      >
+        <div className="flex justify-center py-6">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  if (!hasRecoverySession) {
     return (
       <AuthLayout
         icon={AlertTriangle}
         title="Invalid reset link"
-        subtitle="This password reset link is missing or invalid"
+        subtitle="This password reset link is missing, expired, or invalid"
         footer={
-          <Link to="/forgot-password" className="text-primary font-medium hover:underline">
+          <Link
+            to="/forgot-password"
+            className="text-primary font-medium hover:underline"
+          >
             Request a new link
           </Link>
         }
       >
         <p className="text-sm text-foreground text-center">
-          The link you used appears to be incomplete. Please request a new password reset email.
+          Please request a new password reset email and use the newest link.
+        </p>
+      </AuthLayout>
+    );
+  }
+
+  if (passwordUpdated) {
+    return (
+      <AuthLayout
+        icon={CheckCircle2}
+        title="Password updated"
+        subtitle="Your new password is ready to use"
+        footer={
+          <Link
+            to="/login"
+            className="text-primary font-medium hover:underline"
+          >
+            Continue to login
+          </Link>
+        }
+      >
+        <p className="text-sm text-foreground text-center">
+          Your password was changed successfully.
         </p>
       </AuthLayout>
     );
@@ -64,11 +156,17 @@ export default function ResetPassword() {
           {error}
         </div>
       )}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="password">New Password</Label>
+
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Lock
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+
             <Input
               id="password"
               type="password"
@@ -78,14 +176,21 @@ export default function ResetPassword() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="pl-10 h-12"
+              minLength={6}
               required
             />
           </div>
         </div>
+
         <div className="space-y-2">
           <Label htmlFor="confirm">Confirm Password</Label>
+
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Lock
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+
             <Input
               id="confirm"
               type="password"
@@ -94,18 +199,24 @@ export default function ResetPassword() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="pl-10 h-12"
+              minLength={6}
               required
             />
           </div>
         </div>
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+
+        <Button
+          type="submit"
+          className="w-full h-12 font-medium"
+          disabled={loading}
+        >
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               Resetting...
             </>
           ) : (
-            "Reset password"
+            'Reset password'
           )}
         </Button>
       </form>

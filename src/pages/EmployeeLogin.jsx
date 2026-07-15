@@ -1,24 +1,25 @@
+// @ts-nocheck
 import { restaurantConfig } from '@/config/restaurantConfig';
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { supabase } from "@/lib/supabaseClient";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Mail, Lock, Loader2, UserCheck } from "lucide-react";
-import AuthLayout from "@/components/AuthLayout";
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { supabase } from '@/lib/supabaseClient';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Mail, Lock, Loader2, UserCheck } from 'lucide-react';
+import AuthLayout from '@/components/AuthLayout';
 
 const RESTAURANT_ID = restaurantConfig.id;
 
 export default function EmployeeLogin() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
+    setError('');
     setLoading(true);
 
     try {
@@ -37,44 +38,44 @@ export default function EmployeeLogin() {
       const authUserId = signInData?.user?.id;
 
       if (!authUserId) {
-        throw new Error("Could not find employee auth user.");
+        throw new Error('Could not find employee auth user.');
       }
 
       const { data: employee, error: employeeError } = await supabase
-        .from("employees")
-        .select("*")
-        .eq("restaurant_id", RESTAURANT_ID)
-        .eq("auth_user_id", authUserId)
-        .eq("is_active", true)
+        .from('employees')
+        .select('*')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('auth_user_id', authUserId)
+        .eq('is_active', true)
         .maybeSingle();
 
       if (employeeError || !employee) {
         await supabase.auth.signOut();
-        setError("Access denied. This login is for employees only.");
+        setError('Access denied. This login is for employees only.');
         setLoading(false);
         return;
       }
 
-      if (String(employee.role || "").toLowerCase() !== "employee") {
+      if (String(employee.role || '').toLowerCase() !== 'employee') {
         await supabase.auth.signOut();
-        setError("Access denied. This login is for employees only.");
+        setError('Access denied. This login is for employees only.');
         setLoading(false);
         return;
       }
 
       await supabase
-        .from("employees")
+        .from('employees')
         .update({
-          status: "active",
+          status: 'active',
         })
-        .eq("id", employee.id);
+        .eq('id', employee.id);
 
-      sessionStorage.removeItem("adminAccessGranted");
+      sessionStorage.removeItem('adminAccessGranted');
 
-      window.location.replace("/admin/employee-dashboard");
+      window.location.replace('/admin/employee-dashboard');
     } catch (err) {
-      console.error("Employee login failed:", err);
-      setError(err.message || "Invalid email or password");
+      console.error('Employee login failed:', err);
+      setError(err?.message || 'Invalid email or password');
       setLoading(false);
     }
   };
@@ -85,19 +86,27 @@ export default function EmployeeLogin() {
       title="Employee Login"
       subtitle="Staff access only"
       footer={
-        <>
-          <div className="flex flex-col gap-2 text-center">
-            <span className="text-sm text-muted-foreground">
-              First time?{" "}
-              <Link
-                to="/employee-signup"
-                className="text-primary font-medium hover:underline"
-              >
-                Employee Sign Up
-              </Link>
-            </span>
-          </div>
-        </>
+        <div className="flex flex-col gap-2 text-center">
+          <span className="text-sm text-muted-foreground">
+            First time?{' '}
+            <Link
+              to="/employee-signup"
+              className="text-primary font-medium hover:underline"
+            >
+              Employee Sign Up
+            </Link>
+          </span>
+
+          <span className="text-sm text-muted-foreground">
+            Not an employee?{' '}
+            <Link
+              to="/register"
+              className="text-primary font-medium hover:underline"
+            >
+              Customer Sign Up
+            </Link>
+          </span>
+        </div>
       }
     >
       {error && (
@@ -155,14 +164,18 @@ export default function EmployeeLogin() {
           </div>
         </div>
 
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+        <Button
+          type="submit"
+          className="w-full h-12 font-medium"
+          disabled={loading}
+        >
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               Signing in...
             </>
           ) : (
-            "Employee Sign In"
+            'Employee Sign In'
           )}
         </Button>
       </form>

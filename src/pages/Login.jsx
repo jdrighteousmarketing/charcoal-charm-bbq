@@ -1,11 +1,11 @@
 // @ts-nocheck
-import { restaurantConfig } from "@/config/restaurantConfig";
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { supabase } from "@/lib/supabaseClient";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { restaurantConfig } from '@/config/restaurantConfig';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { supabase } from '@/lib/supabaseClient';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Eye,
   EyeOff,
@@ -13,21 +13,27 @@ import {
   Lock,
   Mail,
   UserRound,
-} from "lucide-react";
-import AuthLayout from "@/components/AuthLayout";
+} from 'lucide-react';
+import AuthLayout from '@/components/AuthLayout';
 
 const RESTAURANT_ID = restaurantConfig.id;
 
+function createCustomerCode() {
+  const prefix = restaurantConfig.customerCodePrefix || 'CUS';
+
+  return `${prefix}-${Math.floor(10000 + Math.random() * 90000)}`;
+}
+
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
+    setError('');
     setLoading(true);
 
     try {
@@ -40,29 +46,83 @@ export default function Login() {
         });
 
       if (authError || !authData?.user) {
-        setError("Invalid email or password");
+        setError('Invalid email or password');
         setLoading(false);
         return;
       }
 
-      const { data: customer, error: customerError } = await supabase
-        .from("customers")
-        .select("*")
-        .eq("restaurant_id", RESTAURANT_ID)
-        .eq("auth_user_id", authData.user.id)
-        .maybeSingle();
+      const authUserId = authData.user.id;
 
-      if (customerError || !customer) {
-        await supabase.auth.signOut();
-        setError("Customer profile not found. Please contact support.");
-        setLoading(false);
-        return;
+      const { data: existingCustomer, error: customerLookupError } =
+        await supabase
+          .from('customers')
+          .select('*')
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('auth_user_id', authUserId)
+          .maybeSingle();
+
+      if (customerLookupError) {
+        throw customerLookupError;
       }
 
-      window.location.href = "/";
+      if (!existingCustomer) {
+        const name =
+          authData.user.user_metadata?.full_name ||
+          authData.user.user_metadata?.name ||
+          cleanEmail.split('@')[0];
+
+        const customerRow = {
+          restaurant_id: RESTAURANT_ID,
+          auth_user_id: authUserId,
+          customer_code: createCustomerCode(),
+          name,
+          email: cleanEmail,
+          points_balance: 0,
+          lifetime_points: 0,
+          lifetime_spend: 0,
+          visit_count: 0,
+          active: true,
+        };
+
+        const { error: insertError } = await supabase
+          .from('customers')
+          .insert([customerRow]);
+
+        if (insertError) {
+          /*
+           * If two requests create the membership at nearly the same time,
+           * a unique-constraint error can occur even though the customer row
+           * now exists. Verify the membership before treating it as a failure.
+           */
+          if (insertError.code === '23505') {
+            const { data: createdCustomer, error: recheckError } =
+              await supabase
+                .from('customers')
+                .select('id')
+                .eq('restaurant_id', RESTAURANT_ID)
+                .eq('auth_user_id', authUserId)
+                .maybeSingle();
+
+            if (recheckError || !createdCustomer) {
+              throw insertError;
+            }
+          } else {
+            throw insertError;
+          }
+        }
+      }
+
+      window.location.replace('/');
     } catch (err) {
-      console.error("Customer login failed:", err);
-      setError(err.message || "Invalid email or password");
+      console.error('Customer login failed:', err);
+
+      await supabase.auth.signOut();
+
+      setError(
+        err?.message ||
+          'We could not connect your account to this restaurant. Please try again.'
+      );
+
       setLoading(false);
     }
   };
@@ -75,7 +135,7 @@ export default function Login() {
       headingInsideCard
       footer={
         <p>
-          Don&apos;t have an account?{" "}
+          Don&apos;t have an account?{' '}
           <Link
             to="/register"
             className="font-medium text-orange-400 hover:underline"
@@ -118,7 +178,10 @@ export default function Login() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="password" className="text-base font-semibold text-white">
+          <Label
+            htmlFor="password"
+            className="text-base font-semibold text-white"
+          >
             Password
           </Label>
 
@@ -130,7 +193,7 @@ export default function Login() {
 
             <Input
               id="password"
-              type={showPassword ? "text" : "password"}
+              type={showPassword ? 'text' : 'password'}
               autoComplete="current-password"
               placeholder="••••••••"
               value={password}
@@ -143,7 +206,7 @@ export default function Login() {
               type="button"
               onClick={() => setShowPassword((current) => !current)}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-white/50 transition-colors hover:text-orange-400"
-              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? (
                 <EyeOff className="h-5 w-5" />
@@ -174,7 +237,7 @@ export default function Login() {
               Signing in...
             </>
           ) : (
-            "Sign In"
+            'Sign In'
           )}
         </Button>
       </form>

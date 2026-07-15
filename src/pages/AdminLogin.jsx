@@ -1,26 +1,27 @@
+// @ts-nocheck
 import { restaurantConfig } from '@/config/restaurantConfig';
-import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Mail, Lock, Loader2, ShieldCheck } from "lucide-react";
-import AuthLayout from "@/components/AuthLayout";
-import { supabase } from "@/lib/supabaseClient";
+import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { Mail, Lock, Loader2, ShieldCheck } from 'lucide-react';
+import AuthLayout from '@/components/AuthLayout';
+import { supabase } from '@/lib/supabaseClient';
 
 const RESTAURANT_ID = restaurantConfig.id;
 
 export default function AdminLogin() {
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
+    setError('');
     setLoading(true);
 
     try {
@@ -33,39 +34,39 @@ export default function AdminLogin() {
         });
 
       if (authError || !authData?.user) {
-        setError("Invalid admin email or password");
+        setError('Invalid admin email or password');
         setLoading(false);
         return;
       }
 
       const { data: adminData, error: adminError } = await supabase
-        .from("admins")
-        .select("*")
-        .eq("auth_user_id", authData.user.id)
-        .eq("restaurant_id", RESTAURANT_ID)
-        .eq("is_active", true)
+        .from('admins')
+        .select('*')
+        .eq('auth_user_id', authData.user.id)
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('is_active', true)
         .maybeSingle();
 
       if (adminError || !adminData) {
         await supabase.auth.signOut();
-        setError("This account does not have admin access.");
+        setError('This account does not have admin access.');
         setLoading(false);
         return;
       }
 
-      if (String(adminData.role || "").toLowerCase() !== "admin") {
+      if (String(adminData.role || '').toLowerCase() !== 'admin') {
         await supabase.auth.signOut();
-        setError("This account is not an admin account.");
+        setError('This account is not an admin account.');
         setLoading(false);
         return;
       }
 
-      sessionStorage.setItem("adminAccessGranted", "true");
+      sessionStorage.setItem('adminAccessGranted', 'true');
 
-      window.location.replace("/admin");
+      window.location.replace('/admin');
     } catch (err) {
-      console.error("Admin login failed:", err);
-      setError("Admin login failed");
+      console.error('Admin login failed:', err);
+      setError('Admin login failed');
       setLoading(false);
     }
   };
@@ -77,8 +78,11 @@ export default function AdminLogin() {
       subtitle="Admin & owner access only"
       footer={
         <>
-          Not an admin?{" "}
-          <Link to="/register" className="text-primary font-medium hover:underline">
+          Not an admin?{' '}
+          <Link
+            to="/register"
+            className="text-primary font-medium hover:underline"
+          >
             Customer sign up
           </Link>
         </>
@@ -112,7 +116,16 @@ export default function AdminLogin() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="password">Password</Label>
+
+            <Link
+              to="/forgot-password"
+              className="text-sm text-primary font-medium hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
 
           <div className="relative">
             <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -130,14 +143,18 @@ export default function AdminLogin() {
           </div>
         </div>
 
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+        <Button
+          type="submit"
+          className="w-full h-12 font-medium"
+          disabled={loading}
+        >
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               Signing in...
             </>
           ) : (
-            "Admin Sign In"
+            'Admin Sign In'
           )}
         </Button>
       </form>
