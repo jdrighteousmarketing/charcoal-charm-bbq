@@ -69,29 +69,44 @@ export default function EmployeeManagement() {
 
   const inviteMutation = useMutation({
     mutationFn: async ({ email, name }) => {
-      const response = await fetch('/.netlify/functions/invite-employee', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          fullName: name,
-        }),
-      });
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
 
-      const result = await response.json();
+  if (sessionError || !session?.access_token) {
+    throw new Error(
+      'Your administrator session has expired. Please sign in again.'
+    );
+  }
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to invite employee');
-      }
-
-      return result;
+  const response = await fetch('/.netlify/functions/invite-employee', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
     },
+    body: JSON.stringify({
+      email,
+      fullName: name,
+    }),
+  });
 
-    onSuccess: () => {
-      setInviteSent(true);
-      toast.success('Employee invite sent!');
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error || 'Failed to invite employee');
+  }
+
+  return result;
+},
+
+    onSuccess: (result) => {
+  setInviteSent(true);
+
+  toast.success(
+    result?.message || 'Employee access created successfully!'
+  );
 
       queryClient.invalidateQueries({
         queryKey: ['employees', RESTAURANT_ID],
