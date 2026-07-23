@@ -31,6 +31,9 @@ export const restaurantConfig = {
 
     authHeroImage: '/branding/auth-hero.png',
 
+    emailHeaderUrl:
+  'https://charcoal-charm-bbq.netlify.app/branding/email-header.png',
+
   // =========================================================================
   // Default Contact Information
   // =========================================================================

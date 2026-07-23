@@ -57,14 +57,25 @@ export default function Signup() {
       const cleanEmail = email.trim().toLowerCase();
       const name = cleanEmail.split('@')[0];
 
-      const { data: authData, error: authError } =
-        await supabase.auth.signUp({
-          email: cleanEmail,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/login`,
-          },
-        });
+      const signupMetadata = {
+  restaurant_id: RESTAURANT_ID,
+  restaurant_name: restaurantConfig.restaurantName,
+  signup_origin: window.location.origin,
+  email_header_url: restaurantConfig.emailHeaderUrl,
+  primary_color: restaurantConfig.primaryColor,
+};
+
+console.log('Signup metadata:', signupMetadata);
+
+const { data: authData, error: authError } =
+  await supabase.auth.signUp({
+    email: cleanEmail,
+    password,
+    options: {
+      emailRedirectTo: `${window.location.origin}/login`,
+      data: signupMetadata,
+    },
+  });
 
       const errorMessage = String(authError?.message || '').toLowerCase();
 
