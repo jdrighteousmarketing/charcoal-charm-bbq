@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { getCurrentStaff } from '@/lib/currentStaff';
 import { calculateCheckoutTotals } from "@/components/businessInsights/utils/checkoutPricing";
 
 const RESTAURANT_ID = restaurantConfig.id;
@@ -587,6 +588,10 @@ const currentCheckoutTotals = calculateCheckoutTotals({
       const activeCheckoutCode =
         checkoutData.checkoutCode || checkoutData.checkout_code || null;
 
+        const staffUser = await getCurrentStaff();
+
+console.log('Current staff completing checkout:', staffUser);
+
       const completeCustomerCheckoutSession = async () => {
         const sessionUpdate = {
           status: 'completed',
@@ -658,7 +663,10 @@ const currentCheckoutTotals = calculateCheckoutTotals({
           points_awarded: actualPointsAwarded,
           payment_method: 'outside_app',
           order_status: 'completed',
-          employee_name: 'Employee',
+          employee_name:
+  staffUser?.name ||
+  staffUser?.email ||
+  'Employee',
         },
       ]);
 
@@ -687,9 +695,6 @@ const currentCheckoutTotals = calculateCheckoutTotals({
         if (orderItemsError) throw orderItemsError;
       }
 
-      const employeeUser = JSON.parse(localStorage.getItem('pitstop_employee_user') || '{}');
-      const adminUser = JSON.parse(localStorage.getItem('pitstop_demo_user') || '{}');
-      const staffUser = employeeUser?.loggedIn ? employeeUser : adminUser;
 
       if (actualPointsAwarded > 0) {
         const { error: pointsError } = await supabase
