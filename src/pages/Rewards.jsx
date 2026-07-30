@@ -2,7 +2,7 @@
 import { restaurantConfig } from '@/config/restaurantConfig';
 import { supabase } from '@/lib/supabaseClient';
 import { useEffect, useState } from 'react';
-import { Gift, Star, Cake, QrCode, Trophy } from 'lucide-react';
+import { Gift, Star, Cake, QrCode, Trophy, Lock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
@@ -24,53 +24,97 @@ function getLifetimePoints(customer) {
   );
 }
 
-function daysUntilBirthday(birthday) {
+function getBirthdayCycle(birthday) {
   if (!birthday) return null;
 
+  const [, month, day] = String(birthday)
+    .split('-')
+    .map(Number);
+
+  if (!month || !day) return null;
+
   const today = new Date();
-  const birthdayDate = new Date(`${birthday}T00:00:00`);
-
-  if (Number.isNaN(birthdayDate.getTime())) return null;
-
   const todayStart = new Date(
     today.getFullYear(),
     today.getMonth(),
     today.getDate()
   );
 
-  const thisYearBirthday = new Date(
+  const possibleYears = [
+    today.getFullYear() - 1,
     today.getFullYear(),
-    birthdayDate.getMonth(),
-    birthdayDate.getDate()
-  );
+    today.getFullYear() + 1,
+  ];
 
-  const nextBirthday =
-    thisYearBirthday < todayStart
-      ? new Date(
-          today.getFullYear() + 1,
-          birthdayDate.getMonth(),
-          birthdayDate.getDate()
-        )
-      : thisYearBirthday;
+  for (const birthdayYear of possibleYears) {
+    const birthdayDate = new Date(
+      birthdayYear,
+      month - 1,
+      day
+    );
 
-  const diffMs = nextBirthday.getTime() - todayStart.getTime();
+    if (
+      Number.isNaN(birthdayDate.getTime()) ||
+      birthdayDate.getMonth() !== month - 1 ||
+      birthdayDate.getDate() !== day
+    ) {
+      continue;
+    }
 
-  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    const windowStart = new Date(birthdayDate);
+    windowStart.setDate(windowStart.getDate() - 15);
+
+    const windowEnd = new Date(birthdayDate);
+    windowEnd.setDate(windowEnd.getDate() + 15);
+
+    if (todayStart >= windowStart && todayStart <= windowEnd) {
+      return {
+        birthdayYear,
+        isWithinWindow: true,
+      };
+    }
+  }
+
+  return {
+    birthdayYear: null,
+    isWithinWindow: false,
+  };
 }
 
 function canShowBirthdayReward(profile) {
-  if (!profile?.birthday) return false;
-  if (profile?.birthday_reward_redeemed_at) return false;
+  const cycle = getBirthdayCycle(profile?.birthday);
 
-  const days = daysUntilBirthday(profile.birthday);
+  return Boolean(
+    cycle?.isWithinWindow &&
+    !profile?.birthdayRewardRedeemedForCurrentCycle
+  );
+}
 
-  return days !== null && days >= 0 && days <= 30;
+function DealLockedOverlay() {
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-background/88 backdrop-blur-[2px] p-4">
+      <div className="text-center max-w-[230px]">
+        <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
+          <Lock className="h-4 w-4 text-primary" />
+        </div>
+
+        <p className="text-sm font-bold">
+          One deal per order
+        </p>
+
+        <p className="mt-1 text-xs font-medium text-foreground/90">
+  Remove your current deal to use this reward.
+</p>
+      </div>
+    </div>
+  );
 }
 
 export default function Rewards() {
   const [rewards, setRewards] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [pendingBirthdayRewardIds, setPendingBirthdayRewardIds] = useState([]);
+  const [pendingRewardIds, setPendingRewardIds] = useState([]);
+  const [hasPendingDeal, setHasPendingDeal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [redeemingId, setRedeemingId] = useState(null);
 
@@ -84,7 +128,7 @@ export default function Rewards() {
     customer_id_code: '',
     customer_code: '',
     birthday: null,
-    birthday_reward_redeemed_at: null,
+    birthdayRewardRedeemedForCurrentCycle: false,
     isPreviewMode: false,
   });
 
@@ -109,7 +153,7 @@ export default function Rewards() {
         customer_id_code: 'PREVIEW',
         customer_code: 'PREVIEW',
         birthday: null,
-        birthday_reward_redeemed_at: null,
+        birthdayRewardRedeemedForCurrentCycle: false,
         isPreviewMode: true,
       };
 
@@ -130,6 +174,35 @@ export default function Rewards() {
           activeProfile = previewProfile;
           setProfile(activeProfile);
         } else {
+          const birthdayCycle = getBirthdayCycle(customerProfile.birthday);
+
+          let birthdayRewardRedeemedForCurrentCycle = false;
+
+          if (
+            birthdayCycle?.isWithinWindow &&
+            customerProfile.customer_code
+          ) {
+            const {
+              data: birthdayRedemption,
+              error: birthdayRedemptionError,
+            } = await supabase
+              .from('birthday_reward_redemptions')
+              .select('id')
+              .eq('restaurant_id', RESTAURANT_ID)
+              .eq('customer_code', customerProfile.customer_code)
+              .eq('birthday_year', birthdayCycle.birthdayYear)
+              .limit(1)
+              .maybeSingle();
+
+            if (birthdayRedemptionError) {
+              throw birthdayRedemptionError;
+            }
+
+            birthdayRewardRedeemedForCurrentCycle = Boolean(
+              birthdayRedemption?.id
+            );
+          }
+
           activeProfile = {
             id: customerProfile.id,
             auth_user_id: customerProfile.auth_user_id || user.id,
@@ -150,8 +223,7 @@ export default function Rewards() {
               customerProfile.customer_id_code ||
               '',
             birthday: customerProfile.birthday || null,
-            birthday_reward_redeemed_at:
-              customerProfile.birthday_reward_redeemed_at || null,
+            birthdayRewardRedeemedForCurrentCycle,
             isPreviewMode: false,
           };
 
@@ -171,7 +243,7 @@ export default function Rewards() {
         customer_id_code: 'PREVIEW',
         customer_code: 'PREVIEW',
         birthday: null,
-        birthday_reward_redeemed_at: null,
+        birthdayRewardRedeemedForCurrentCycle: false,
         isPreviewMode: true,
       };
 
@@ -197,22 +269,37 @@ export default function Rewards() {
 
     if (!activeProfile?.isPreviewMode && activeProfile?.customer_id_code) {
       try {
-        const { data: pendingBirthdayData, error: pendingBirthdayError } =
-          await supabase
+        const [
+          { data: pendingRewardsData, error: pendingRewardsError },
+          { data: pendingDealsData, error: pendingDealsError },
+        ] = await Promise.all([
+          supabase
             .from('customer_checkout_rewards')
-            .select('reward_id')
+            .select('id, reward_id')
             .eq('restaurant_id', RESTAURANT_ID)
             .eq('customer_code', activeProfile.customer_id_code)
-            .eq('status', 'pending');
+            .eq('status', 'pending'),
 
-        if (pendingBirthdayError) throw pendingBirthdayError;
+          supabase
+            .from('customer_checkout_deals')
+            .select('id')
+            .eq('restaurant_id', RESTAURANT_ID)
+            .eq('customer_code', activeProfile.customer_id_code)
+            .eq('status', 'pending'),
+        ]);
 
-        setPendingBirthdayRewardIds(
-          (pendingBirthdayData || []).map((item) => String(item.reward_id))
+        if (pendingRewardsError) throw pendingRewardsError;
+        if (pendingDealsError) throw pendingDealsError;
+
+        setPendingRewardIds(
+          (pendingRewardsData || []).map((item) => String(item.reward_id))
         );
+
+        setHasPendingDeal((pendingDealsData || []).length > 0);
       } catch (error) {
-        console.error('Could not load pending birthday rewards:', error);
-        setPendingBirthdayRewardIds([]);
+        console.error('Could not load active checkout deal:', error);
+        setPendingRewardIds([]);
+        setHasPendingDeal(false);
       }
 
       try {
@@ -232,7 +319,8 @@ export default function Rewards() {
         setTransactions([]);
       }
     } else {
-      setPendingBirthdayRewardIds([]);
+      setPendingRewardIds([]);
+      setHasPendingDeal(false);
       setTransactions([]);
     }
 
@@ -248,10 +336,18 @@ export default function Rewards() {
 
     window.addEventListener('focus', handleUpdate);
     window.addEventListener('pitstop_checkout_rewards_updated', handleUpdate);
+    window.addEventListener('pitstop_checkout_deals_updated', handleUpdate);
 
     return () => {
       window.removeEventListener('focus', handleUpdate);
-      window.removeEventListener('pitstop_checkout_rewards_updated', handleUpdate);
+      window.removeEventListener(
+        'pitstop_checkout_rewards_updated',
+        handleUpdate
+      );
+      window.removeEventListener(
+        'pitstop_checkout_deals_updated',
+        handleUpdate
+      );
     };
   }, []);
 
@@ -260,9 +356,55 @@ export default function Rewards() {
     return true;
   };
 
+  const hasPendingReward = pendingRewardIds.length > 0;
+  const hasActiveCheckoutDeal = hasPendingDeal || hasPendingReward;
+
+  const verifyNoActiveDeal = async () => {
+    if (
+      profile.isPreviewMode ||
+      !profile.customer_id_code
+    ) {
+      return !profile.isPreviewMode;
+    }
+
+    const [
+      { data: pendingRewardsData, error: pendingRewardsError },
+      { data: pendingDealsData, error: pendingDealsError },
+    ] = await Promise.all([
+      supabase
+        .from('customer_checkout_rewards')
+        .select('id')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', profile.customer_id_code)
+        .eq('status', 'pending')
+        .limit(1),
+
+      supabase
+        .from('customer_checkout_deals')
+        .select('id')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('customer_code', profile.customer_id_code)
+        .eq('status', 'pending')
+        .limit(1),
+    ]);
+
+    if (pendingRewardsError) throw pendingRewardsError;
+    if (pendingDealsError) throw pendingDealsError;
+
+    return (
+      (pendingRewardsData || []).length === 0 &&
+      (pendingDealsData || []).length === 0
+    );
+  };
+
   const handleRedeemReward = async (reward) => {
     if (profile.isPreviewMode) {
       toast.info('Preview mode only. Log in as a customer to redeem rewards.');
+      return;
+    }
+
+    if (hasActiveCheckoutDeal) {
+      toast.error('Remove your current deal before adding another.');
       return;
     }
 
@@ -273,12 +415,21 @@ export default function Rewards() {
 
     setRedeemingId(reward.id);
 
-    const newBalance = Math.max(
-      0,
-      Number(profile.points_balance || 0) - Number(reward.points_required || 0)
-    );
-
     try {
+      const canAddReward = await verifyNoActiveDeal();
+
+      if (!canAddReward) {
+        toast.error('Remove your current deal before adding another.');
+        await loadRewardsData();
+        return;
+      }
+
+      const newBalance = Math.max(
+        0,
+        Number(profile.points_balance || 0) -
+          Number(reward.points_required || 0)
+      );
+
       const { error: updateError } = await supabase
         .from('customers')
         .update({
@@ -305,7 +456,17 @@ export default function Rewards() {
           },
         ]);
 
-      if (checkoutRewardError) throw checkoutRewardError;
+      if (checkoutRewardError) {
+        await supabase
+          .from('customers')
+          .update({
+            points_balance: Number(profile.points_balance || 0),
+          })
+          .eq('restaurant_id', RESTAURANT_ID)
+          .eq('auth_user_id', profile.auth_user_id);
+
+        throw checkoutRewardError;
+      }
 
       const { error: txError } = await supabase
         .from('points_transactions')
@@ -327,7 +488,9 @@ export default function Rewards() {
         points_balance: newBalance,
       }));
 
-      window.dispatchEvent(new Event('pitstop_checkout_rewards_updated'));
+      window.dispatchEvent(
+        new Event('pitstop_checkout_rewards_updated')
+      );
 
       toast.success(`${reward.name} added to checkout!`);
       await loadRewardsData();
@@ -350,14 +513,22 @@ export default function Rewards() {
       return;
     }
 
-    if (pendingBirthdayRewardIds.includes(String(reward.id))) {
-      toast.error('Birthday reward is already in checkout.');
+    if (hasActiveCheckoutDeal) {
+      toast.error('Remove your current deal before adding another.');
       return;
     }
 
     setRedeemingId(reward.id);
 
     try {
+      const canAddReward = await verifyNoActiveDeal();
+
+      if (!canAddReward) {
+        toast.error('Remove your current deal before adding another.');
+        await loadRewardsData();
+        return;
+      }
+
       const { error: checkoutRewardError } = await supabase
         .from('customer_checkout_rewards')
         .insert([
@@ -376,7 +547,9 @@ export default function Rewards() {
 
       if (checkoutRewardError) throw checkoutRewardError;
 
-      window.dispatchEvent(new Event('pitstop_checkout_rewards_updated'));
+      window.dispatchEvent(
+        new Event('pitstop_checkout_rewards_updated')
+      );
 
       toast.success(`${reward.name} added to checkout!`);
       await loadRewardsData();
@@ -399,25 +572,25 @@ export default function Rewards() {
   const birthdayRewards = profile.isPreviewMode
     ? sortedRewards.filter((reward) => reward.is_birthday_reward)
     : canShowBirthdayReward(profile)
-      ? sortedRewards
-          .filter((reward) => reward.is_birthday_reward)
-          .filter(
-            (reward) => !pendingBirthdayRewardIds.includes(String(reward.id))
-          )
+      ? sortedRewards.filter((reward) => reward.is_birthday_reward)
       : [];
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
       <div className="pb-4">
         <div className="px-5 pt-12 pb-2">
-          <h1 className="text-2xl font-display font-bold">Rewards</h1>
+          <h1 className="text-2xl font-display font-bold">
+            Rewards
+          </h1>
+
           <p className="text-sm text-muted-foreground mt-1">
             Earn points, get rewarded
           </p>
 
           {profile.isPreviewMode && (
             <div className="mt-3 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
-              Admin preview mode: rewards are visible, but redemption buttons are disabled.
+              Admin preview mode: rewards are visible, but redemption buttons
+              are disabled.
             </div>
           )}
         </div>
@@ -434,8 +607,11 @@ export default function Rewards() {
             <div className="relative">
               <div className="flex items-center gap-2 mb-4">
                 <Trophy className="w-5 h-5" />
+
                 <span className="text-sm font-medium text-white/80">
-                  {profile.isPreviewMode ? 'Preview Balance' : 'Points Balance'}
+                  {profile.isPreviewMode
+                    ? 'Preview Balance'
+                    : 'Points Balance'}
                 </span>
               </div>
 
@@ -456,6 +632,7 @@ export default function Rewards() {
                   <p className="text-[10px] text-white/70 uppercase tracking-wider">
                     Your Reward ID
                   </p>
+
                   <p className="font-mono font-bold text-lg tracking-wider">
                     {profile.customer_id_code || '---'}
                   </p>
@@ -468,7 +645,9 @@ export default function Rewards() {
         <div className="px-5 mt-8">
           <div className="flex items-center gap-2 mb-4">
             <Gift className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-display font-bold">Available Rewards</h2>
+            <h2 className="text-lg font-display font-bold">
+              Available Rewards
+            </h2>
           </div>
 
           <div className="space-y-3">
@@ -497,14 +676,24 @@ export default function Rewards() {
                 const canRedeem =
                   (profile.points_balance || 0) >= reward.points_required;
 
+                const isThisRewardPending =
+                  pendingRewardIds.includes(String(reward.id));
+
+                const isLocked =
+                  !profile.isPreviewMode &&
+                  hasActiveCheckoutDeal &&
+                  !isThisRewardPending;
+
                 return (
                   <motion.div
                     key={reward.id}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.06 }}
-                    className="bg-card rounded-2xl border border-border p-4"
+                    className="relative bg-card rounded-2xl border border-border p-4 overflow-hidden"
                   >
+                    {isLocked && <DealLockedOverlay />}
+
                     <div className="flex gap-3">
                       <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
                         <Star className="w-6 h-6 text-primary" />
@@ -537,25 +726,42 @@ export default function Rewards() {
                           <Progress value={progress} className="h-1.5" />
 
                           <p className="text-[10px] text-muted-foreground mt-1">
-                            {canRedeem
-                              ? '✨ Ready to redeem!'
-                              : `${profile.points_balance || 0} / ${reward.points_required} points`}
+                            {isThisRewardPending
+                              ? 'Added to checkout'
+                              : canRedeem
+                                ? '✨ Ready to redeem!'
+                                : `${profile.points_balance || 0} / ${reward.points_required} points`}
                           </p>
                         </div>
 
-                        {(canRedeem || profile.isPreviewMode) && (
+                        {isThisRewardPending ? (
                           <Button
                             size="sm"
                             className="mt-3 w-full h-8"
-                            disabled={redeemingId === reward.id || profile.isPreviewMode}
-                            onClick={() => handleRedeemReward(reward)}
+                            variant="secondary"
+                            disabled
                           >
-                            {profile.isPreviewMode
-                              ? 'Customer Preview'
-                              : redeemingId === reward.id
-                                ? 'Adding to Checkout...'
-                                : 'Redeem Reward'}
+                            Added to Checkout
                           </Button>
+                        ) : (
+                          (canRedeem || profile.isPreviewMode) && (
+                            <Button
+                              size="sm"
+                              className="mt-3 w-full h-8"
+                              disabled={
+                                redeemingId === reward.id ||
+                                profile.isPreviewMode ||
+                                isLocked
+                              }
+                              onClick={() => handleRedeemReward(reward)}
+                            >
+                              {profile.isPreviewMode
+                                ? 'Customer Preview'
+                                : redeemingId === reward.id
+                                  ? 'Adding to Checkout...'
+                                  : 'Redeem Reward'}
+                            </Button>
+                          )
                         )}
                       </div>
                     </div>
@@ -570,52 +776,86 @@ export default function Rewards() {
           <div className="px-5 mt-8">
             <div className="flex items-center gap-2 mb-4">
               <Cake className="w-5 h-5 text-primary" />
+
               <h2 className="text-lg font-display font-bold">
                 Birthday Reward
               </h2>
             </div>
 
-            {birthdayRewards.map((reward) => (
-              <div
-                key={reward.id}
-                className="rounded-2xl border p-4 bg-[#3b151b] border-[#7c2d3a]"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="text-3xl">🎂</div>
+            <div className="space-y-3">
+              {birthdayRewards.map((reward) => {
+                const isThisRewardPending =
+                  pendingRewardIds.includes(String(reward.id));
 
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-sm text-white">
-                      {reward.name}
-                    </h3>
+                const isLocked =
+                  !profile.isPreviewMode &&
+                  hasActiveCheckoutDeal &&
+                  !isThisRewardPending;
 
-                    {reward.description && (
-                      <p className="text-xs text-pink-100 mt-0.5">
-                        {reward.description}
-                      </p>
-                    )}
+                return (
+                  <div
+                    key={reward.id}
+                    className="relative rounded-2xl border p-4 bg-[#3b151b] border-[#7c2d3a] overflow-hidden"
+                  >
+                    {isLocked && <DealLockedOverlay />}
 
-                    <p className="text-[10px] text-pink-200 mt-1">
-                      {profile.isPreviewMode
-                        ? 'Admin preview: birthday rewards appear here when customers are within 30 days of their birthday.'
-                        : 'Available within 30 days of your birthday. If removed from checkout, it will return here.'}
-                    </p>
+                    <div className="flex items-center gap-3">
+                      <div className="text-3xl">🎂</div>
 
-                    <Button
-                      size="sm"
-                      className="mt-3 w-full h-8"
-                      disabled={redeemingId === reward.id || profile.isPreviewMode}
-                      onClick={() => handleRedeemBirthdayReward(reward)}
-                    >
-                      {profile.isPreviewMode
-                        ? 'Customer Preview'
-                        : redeemingId === reward.id
-                          ? 'Adding to Checkout...'
-                          : 'Add Birthday Reward to Checkout'}
-                    </Button>
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-sm text-white">
+                          {reward.name}
+                        </h3>
+
+                        {reward.description && (
+                          <p className="text-xs text-pink-100 mt-0.5">
+                            {reward.description}
+                          </p>
+                        )}
+
+                        <p className="text-[10px] text-pink-200 mt-1">
+                          {profile.isPreviewMode
+                            ? 'Admin preview: birthday rewards appear here from 15 days before through 15 days after the customer’s birthday.'
+                            : isThisRewardPending
+                              ? 'Birthday reward is currently added to checkout.'
+                              : 'Available from 15 days before through 15 days after your birthday. If removed from checkout, it will return here.'}
+                        </p>
+
+                        {isThisRewardPending ? (
+                          <Button
+                            size="sm"
+                            className="mt-3 w-full h-8"
+                            variant="secondary"
+                            disabled
+                          >
+                            Added to Checkout
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="mt-3 w-full h-8"
+                            disabled={
+                              redeemingId === reward.id ||
+                              profile.isPreviewMode ||
+                              isLocked
+                            }
+                            onClick={() =>
+                              handleRedeemBirthdayReward(reward)
+                            }
+                          >
+                            {profile.isPreviewMode
+                              ? 'Customer Preview'
+                              : redeemingId === reward.id
+                                ? 'Adding to Checkout...'
+                                : 'Add Birthday Reward to Checkout'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -627,7 +867,9 @@ export default function Rewards() {
 
             <div className="space-y-2">
               {transactions.map((tx) => {
-                const amount = Number(tx.points_amount ?? tx.points ?? 0);
+                const amount = Number(
+                  tx.points_amount ?? tx.points ?? 0
+                );
 
                 return (
                   <div
@@ -636,7 +878,9 @@ export default function Rewards() {
                   >
                     <div>
                       <p className="text-sm font-medium">
-                        {tx.note || tx.description || tx.transaction_type}
+                        {tx.note ||
+                          tx.description ||
+                          tx.transaction_type}
                       </p>
 
                       <p className="text-[10px] text-muted-foreground">
@@ -646,7 +890,9 @@ export default function Rewards() {
 
                     <span
                       className={`font-bold text-sm ${
-                        amount > 0 ? 'text-emerald-600' : 'text-destructive'
+                        amount > 0
+                          ? 'text-emerald-600'
+                          : 'text-destructive'
                       }`}
                     >
                       {amount > 0 ? '+' : ''}

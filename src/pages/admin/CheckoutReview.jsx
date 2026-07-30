@@ -524,6 +524,20 @@ const currentCheckoutTotals = calculateCheckoutTotals({
   rewardRounding: rewardSettings.rewardRounding || 'down',
 });
 
+const couponActuallyApplied =
+  !!currentCoupon &&
+  Number(currentCheckoutTotals.couponDiscountAmount || 0) > 0;
+
+const hasBirthdayReward =
+  currentRewards.some(isBirthdayReward);
+
+const rewardsActuallyApplied =
+  currentRewards.length > 0 &&
+  (
+    Number(currentCheckoutTotals.rewardDiscountAmount || 0) > 0 ||
+    hasBirthdayReward
+  );
+
       const finalSubtotal = Number(
         currentCheckoutTotals.subtotal ?? checkoutData.subtotal ?? 0
       );
@@ -585,12 +599,61 @@ const currentCheckoutTotals = calculateCheckoutTotals({
       const newVisitCount = Number(customer.visit_count || 0) + 1;
       const orderNumber = `ORD-${Date.now()}`;
       const completedAt = new Date().toISOString();
+
+const completedDate = new Date(completedAt);
+
+const [, birthdayMonth, birthdayDay] = String(customer.birthday || '')
+  .split('-')
+  .map(Number);
+
+let birthdayYear = completedDate.getFullYear();
+
+if (birthdayMonth && birthdayDay) {
+  const completedDay = new Date(
+    completedDate.getFullYear(),
+    completedDate.getMonth(),
+    completedDate.getDate()
+  );
+
+  const possibleYears = [
+    completedDate.getFullYear() - 1,
+    completedDate.getFullYear(),
+    completedDate.getFullYear() + 1,
+  ];
+
+  const matchingBirthdayYear = possibleYears.find((year) => {
+    const birthdayDate = new Date(
+      year,
+      birthdayMonth - 1,
+      birthdayDay
+    );
+
+    if (
+      Number.isNaN(birthdayDate.getTime()) ||
+      birthdayDate.getMonth() !== birthdayMonth - 1 ||
+      birthdayDate.getDate() !== birthdayDay
+    ) {
+      return false;
+    }
+
+    const windowStart = new Date(birthdayDate);
+    windowStart.setDate(windowStart.getDate() - 15);
+
+    const windowEnd = new Date(birthdayDate);
+    windowEnd.setDate(windowEnd.getDate() + 15);
+
+    return completedDay >= windowStart && completedDay <= windowEnd;
+  });
+
+  if (matchingBirthdayYear) {
+    birthdayYear = matchingBirthdayYear;
+  }
+}
+
       const activeCheckoutCode =
         checkoutData.checkoutCode || checkoutData.checkout_code || null;
 
         const staffUser = await getCurrentStaff();
-
-console.log('Current staff completing checkout:', staffUser);
 
       const completeCustomerCheckoutSession = async () => {
         const sessionUpdate = {
@@ -708,8 +771,14 @@ console.log('Current staff completing checkout:', staffUser);
               points_amount: actualPointsAwarded,
                             note: `Earned ${actualPointsAwarded} points from a $${money(finalOrderTotal)} purchase.`,
               employee_name: staffUser?.name || staffUser?.email || 'Employee',
-              awarded_by_employee_id: staffUser?.id || null,
-              awarded_by_employee_auth_id: staffUser?.auth_user_id || null,
+              awarded_by_employee_id:
+  staffUser?.role === 'employee' &&
+  Number.isFinite(Number(staffUser?.id))
+    ? Number(staffUser.id)
+    : null,
+
+awarded_by_employee_auth_id:
+  staffUser?.auth_user_id || null,
               awarded_by_employee_name: staffUser?.name || 'Employee',
               awarded_by_employee_email: staffUser?.email || null,
             },
@@ -728,7 +797,7 @@ console.log('Current staff completing checkout:', staffUser);
         currentCoupon?.checkout_deal_id ||
         currentCoupon?.id;
 
-      if (checkoutDealId) {
+      if (checkoutDealId && couponActuallyApplied) {
         const { error: couponError } = await supabase
           .from('customer_checkout_deals')
           .update({
@@ -745,7 +814,7 @@ console.log('Current staff completing checkout:', staffUser);
 
       // Fallback: if the checkout data did not include the exact coupon id,
       // clear any pending checkout coupon for this customer so it disappears from the cart.
-            if (!checkoutDealId && currentCoupon) {
+            if (!checkoutDealId && currentCoupon && couponActuallyApplied) {
         const { error: pendingCouponError } = await supabase
           .from('customer_checkout_deals')
           .update({
@@ -760,70 +829,80 @@ console.log('Current staff completing checkout:', staffUser);
         if (pendingCouponError) throw pendingCouponError;
       }
 
-            if (currentRewards.length > 0) {
-        const rewardIds = currentRewards
-          .map(
-            (reward) =>
-              reward.checkoutRewardId ||
-              reward.checkout_reward_id ||
-              reward.id
-          )
-          .filter(Boolean);
+            if (currentRewards.length > 0 && rewardsActuallyApplied) {
+  const rewardIds = currentRewards
+    .map(
+      (reward) =>
+        reward.checkoutRewardId ||
+        reward.checkout_reward_id ||
+        reward.id
+    )
+    .filter(Boolean);
 
-        if (rewardIds.length > 0) {
-          const { error: rewardsError } = await supabase
-            .from('customer_checkout_rewards')
-            .update({
-              status: 'redeemed',
-              redeemed_at: completedAt,
-              notes: `Redeemed during order ${orderNumber}`,
-            })
-            .in('id', rewardIds)
-            .eq('restaurant_id', RESTAURANT_ID)
-            .eq('status', 'pending');
+  if (rewardIds.length > 0) {
+    const { error: rewardsError } = await supabase
+      .from('customer_checkout_rewards')
+      .update({
+        status: 'redeemed',
+        redeemed_at: completedAt,
+        notes: `Redeemed during order ${orderNumber}`,
+      })
+      .in('id', rewardIds)
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('status', 'pending');
 
-          if (rewardsError) throw rewardsError;
+    if (rewardsError) throw rewardsError;
 
-          const birthdayRewardsUsed = currentRewards.filter(isBirthdayReward);
+    const birthdayRewardsUsed =
+      currentRewards.filter(isBirthdayReward);
 
-if (birthdayRewardsUsed.length > 0) {
-            const { error: birthdayError } = await supabase
-              .from('customers')
-              .update({
-                birthday_reward_redeemed_at: completedAt,
-              })
-              .eq('restaurant_id', RESTAURANT_ID)
-              .eq('customer_code', customerCode);
+    if (birthdayRewardsUsed.length > 0) {
+      const birthdayRedemptionRows =
+        birthdayRewardsUsed.map((reward) => ({
+          restaurant_id: RESTAURANT_ID,
+          customer_id: customer.auth_user_id || null,
+          customer_code: customerCode,
+          customer_name:
+            customer.name ||
+            checkoutData.customerName ||
+            null,
+          customer_email: customer.email || null,
+          reward_name: getRewardName(reward),
+          redeemed_by:
+            staffUser?.name ||
+            staffUser?.email ||
+            'Employee',
+          redeemed_at: completedAt,
+          birthday_year: birthdayYear,
+        }));
 
-            if (birthdayError) throw birthdayError;
+      const { error: birthdayRedemptionError } =
+        await supabase
+          .from('birthday_reward_redemptions')
+          .insert(birthdayRedemptionRows);
 
-            const birthdayRedemptionRows = birthdayRewardsUsed.map((reward) => ({
-              restaurant_id: RESTAURANT_ID,
-              customer_id: customer.id || null,
-              customer_code: customerCode,
-              customer_name: customer.name || checkoutData.customerName || null,
-              customer_email: customer.email || null,
-              reward_name: getRewardName(reward),
-              redeemed_by: staffUser?.name || staffUser?.email || 'Employee',
-              redeemed_at: completedAt,
-            }));
+      if (birthdayRedemptionError) {
+        console.error(
+          'Birthday redemption insert failed:',
+          birthdayRedemptionError
+        );
 
-            const { error: birthdayRedemptionError } = await supabase
-              .from('birthday_reward_redemptions')
-              .insert(birthdayRedemptionRows);
+        toast.error(
+          `Birthday redemption failed: ${birthdayRedemptionError.message}`
+        );
 
-            if (birthdayRedemptionError) {
-              console.warn('Birthday redemption history could not be saved:', birthdayRedemptionError);
-            }
-          }
-        }
+        throw birthdayRedemptionError;
       }
+    }
+  }
+}
 
       // Fallback: if the checkout data had rewards but did not include exact ids,
       // clear any pending checkout rewards for this customer so they disappear from the cart.
       if (
-        currentRewards.length > 0 &&
-        currentRewards.every(
+  currentRewards.length > 0 &&
+  rewardsActuallyApplied &&
+  currentRewards.every(
           (reward) =>
             !reward.checkoutRewardId &&
             !reward.checkout_reward_id &&
@@ -846,34 +925,35 @@ if (birthdayRewardsUsed.length > 0) {
         const birthdayRewardsUsed = currentRewards.filter(isBirthdayReward);
 
         if (birthdayRewardsUsed.length > 0) {
-          const { error: birthdayError } = await supabase
-            .from('customers')
-            .update({
-              birthday_reward_redeemed_at: completedAt,
-            })
-            .eq('restaurant_id', RESTAURANT_ID)
-            .eq('customer_code', customerCode);
-
-          if (birthdayError) throw birthdayError;
 
           const birthdayRedemptionRows = birthdayRewardsUsed.map((reward) => ({
             restaurant_id: RESTAURANT_ID,
-            customer_id: customer.id || null,
+            customer_id: customer.auth_user_id || null,
             customer_code: customerCode,
             customer_name: customer.name || checkoutData.customerName || null,
             customer_email: customer.email || null,
             reward_name: getRewardName(reward),
             redeemed_by: staffUser?.name || staffUser?.email || 'Employee',
             redeemed_at: completedAt,
+            birthday_year: birthdayYear,
           }));
 
           const { error: birthdayRedemptionError } = await supabase
-            .from('birthday_reward_redemptions')
-            .insert(birthdayRedemptionRows);
+  .from('birthday_reward_redemptions')
+  .insert(birthdayRedemptionRows);
 
-          if (birthdayRedemptionError) {
-            console.warn('Birthday redemption history could not be saved:', birthdayRedemptionError);
-          }
+if (birthdayRedemptionError) {
+  console.error(
+    'Birthday redemption insert failed:',
+    birthdayRedemptionError
+  );
+
+  toast.error(
+    `Birthday redemption failed: ${birthdayRedemptionError.message}`
+  );
+
+  throw birthdayRedemptionError;
+}
         }
       }
 
@@ -909,9 +989,16 @@ if (birthdayRewardsUsed.length > 0) {
 
       navigate('/admin/scanner', { replace: true });
     } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Failed to complete checkout.');
-    } finally {
+  console.error('Checkout failed:', error);
+
+  const errorMessage =
+    error?.message ||
+    error?.details ||
+    error?.hint ||
+    'Failed to complete checkout.';
+
+  toast.error(errorMessage);
+} finally {
       setAwarding(false);
     }
   };

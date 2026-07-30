@@ -452,15 +452,20 @@ export default function CartSheet() {
   );
 
   const pendingDealCount = pendingDeals.length;
-  const pendingRewardCount = pendingRewards.length;
-  const displayCount = cartItemCount + pendingDealCount + pendingRewardCount;
+const pendingRewardCount = pendingRewards.length;
+const activeDealCount = pendingDealCount + pendingRewardCount;
+const hasMultipleActiveDeals = activeDealCount > 1;
+
+const displayCount =
+  cartItemCount + pendingDealCount + pendingRewardCount;
 
   const taxRate = TAX_RATE;
   const pointsPerDollar = Number(restaurantSettings?.points_per_dollar || 1);
   const rewardRounding = restaurantSettings?.reward_rounding === 'up' ? 'up' : 'down';
 
-const pricingCoupon = pendingDeals[0]
-  ? {
+const pricingCoupon =
+  pendingDeals.length === 1 && pendingRewards.length === 0
+    ? {
       ...pendingDeals[0],
       applyTo: pendingDeals[0].target_menu_item_id
   ? 'menu_item'
@@ -478,14 +483,17 @@ getQuantity: Number(pendingDeals[0].get_quantity || 1),
     }
   : null;
 
-  const pricingRewards = pendingRewards.map((reward) => ({
-    ...reward,
-    rewardType: reward.reward_type || 'points_reward',
-    discountType: reward.discount_type || '',
-    discountValue: Number(reward.discount_value || 0),
-    targetMenuItemId: reward.target_menu_item_id || null,
-    targetCategoryId: reward.target_category_id || null,
-  }));
+  const pricingRewards =
+  pendingRewards.length === 1 && pendingDeals.length === 0
+    ? pendingRewards.map((reward) => ({
+        ...reward,
+        rewardType: reward.reward_type || 'points_reward',
+        discountType: reward.discount_type || '',
+        discountValue: Number(reward.discount_value || 0),
+        targetMenuItemId: reward.target_menu_item_id || null,
+        targetCategoryId: reward.target_category_id || null,
+      }))
+    : [];
 
   const checkoutTotals = useMemo(
     () =>
@@ -544,7 +552,10 @@ const unappliedDealIds = useMemo(() => {
 
 const hasUnappliedDeals = unappliedDealIds.length > 0;
 const hasBlockedCheckoutRequirements =
-  hasUnappliedRewards || hasUnappliedDeals || couponMinimumNotMet;
+  hasUnappliedRewards ||
+  hasUnappliedDeals ||
+  couponMinimumNotMet ||
+  hasMultipleActiveDeals;
 
   const customerName =
     customerProfile?.full_name || customerProfile?.name || 'Customer';
@@ -1311,6 +1322,17 @@ const handleRemoveDeal = async (deal) => {
           {hasCheckoutContent && (
             <div className="mt-6 space-y-4 border-t border-border pt-4">
               <div className="space-y-2">
+                {hasMultipleActiveDeals && (
+  <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3">
+    <p className="font-semibold text-destructive">
+      Only one deal can be used per order.
+    </p>
+
+    <p className="text-sm text-muted-foreground mt-1">
+      Remove all but one coupon or reward to continue checkout.
+    </p>
+  </div>
+)}
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>${subtotal.toFixed(2)}</span>
@@ -1379,11 +1401,15 @@ const handleRemoveDeal = async (deal) => {
                 {hasBlockedCheckoutRequirements ? (
   <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/10 p-5 text-sm">
     <p className="font-semibold text-yellow-700 dark:text-yellow-300">
-      Add the required reward/coupon item before checkout.
+      {hasMultipleActiveDeals
+        ? 'Only one deal can be used per order.'
+        : 'Checkout requirements not met yet.'}
     </p>
 
     <p className="text-muted-foreground mt-1">
-      Your QR code will appear after all rewards and coupons apply.
+      {hasMultipleActiveDeals
+        ? 'Remove all but one coupon or reward. Your QR code will appear automatically afterward.'
+        : 'Add the required reward/coupon item before checkout. Your QR code will appear automatically afterward.'}
     </p>
   </div>
 ) : creatingCheckout && !checkoutQrValue ? (

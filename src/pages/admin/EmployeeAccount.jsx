@@ -48,26 +48,22 @@ export default function EmployeeAccount() {
         data: { user },
       } = await supabase.auth.getUser();
 
-      const email =
-        savedEmployee?.email ||
-        savedEmployee?.employee_email ||
-        user?.email ||
-        '';
+      const authUserId = user?.id;
 
-      if (!email) {
-        setLoadError('Employee account not found. Please log out and log back in.');
-        toast.error('Employee account not found');
-        return;
-      }
+if (!authUserId) {
+  setLoadError(
+    'Employee account not found. Please log out and log back in.'
+  );
+  toast.error('Employee account not found');
+  return;
+}
 
-      const cleanEmail = String(email).trim().toLowerCase();
-
-      const { data, error } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('restaurant_id', RESTAURANT_ID)
-        .ilike('email', cleanEmail)
-        .maybeSingle();
+const { data, error } = await supabase
+  .from('employees')
+  .select('*')
+  .eq('restaurant_id', RESTAURANT_ID)
+  .eq('auth_user_id', authUserId)
+  .maybeSingle();
 
       if (error) throw error;
 
@@ -78,11 +74,11 @@ export default function EmployeeAccount() {
       }
 
       setEmployeeId(data.id);
-      setEmployeeEmail(data.email || cleanEmail);
+      setEmployeeEmail(data.email || user.email || '');
 
       setForm({
         full_name: data.full_name || data.name || '',
-        email: data.email || cleanEmail,
+        email: data.email || user.email || '',
         phone: data.phone || '',
         address: data.address || '',
       });

@@ -1,34 +1,31 @@
 const { createClient } = require('@supabase/supabase-js');
 
 const RESTAURANT_ID = process.env.RESTAURANT_ID;
+
+const RESTAURANT_NAME = process.env.RESTAURANT_NAME;
+
 const APP_URL = process.env.APP_URL;
+
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!RESTAURANT_ID) {
-  throw new Error('Missing RESTAURANT_ID environment variable.');
-}
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
-if (!APP_URL) {
-  throw new Error('Missing APP_URL environment variable.');
-}
+const EMPLOYEE_EMAIL_FROM =
+  process.env.EMPLOYEE_EMAIL_FROM;
 
-if (!SUPABASE_URL) {
-  throw new Error('Missing VITE_SUPABASE_URL environment variable.');
-}
+const supabaseAdmin = createClient(
+  SUPABASE_URL,
+  SERVICE_ROLE_KEY,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  }
+);
 
-if (!SERVICE_ROLE_KEY) {
-  throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable.');
-}
-
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
-
-function jsonResponse(statusCode, body) {
+function response(statusCode, body) {
   return {
     statusCode,
     headers: {
@@ -38,262 +35,381 @@ function jsonResponse(statusCode, body) {
   };
 }
 
-function getBearerToken(event) {
-  const authorization =
-    event.headers?.authorization ||
-    event.headers?.Authorization ||
-    '';
-
-  if (!authorization.startsWith('Bearer ')) {
-    return '';
-  }
-
-  return authorization.slice(7).trim();
+function escapeHtml(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
-async function requireRestaurantAdmin(event) {
-  const accessToken = getBearerToken(event);
+async function findExistingAuthUser(email) {
+  let page = 1;
+  const perPage = 1000;
 
-  if (!accessToken) {
-    const error = new Error(
-      'Your administrator session is missing. Please sign in again.'
+  while (true) {
+    const { data, error } =
+      await supabaseAdmin.auth.admin.listUsers({
+        page,
+        perPage,
+      });
+
+    if (error) {
+      throw error;
+    }
+
+    const existingUser = data.users.find(
+      (user) =>
+        user.email?.trim().toLowerCase() === email
     );
-    error.statusCode = 401;
-    throw error;
+
+    if (existingUser) {
+      return existingUser;
+    }
+
+    if (data.users.length < perPage) {
+      return null;
+    }
+
+    page += 1;
   }
+}
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser(accessToken);
-
-  if (userError || !user) {
-    const error = new Error(
-      'Your administrator session is invalid or expired. Please sign in again.'
-    );
-    error.statusCode = 401;
-    throw error;
-  }
-
-  const { data: admin, error: adminError } = await supabase
-    .from('admins')
-    .select('id, auth_user_id, restaurant_id, role, is_active')
-    .eq('auth_user_id', user.id)
-    .eq('restaurant_id', RESTAURANT_ID)
-    .eq('is_active', true)
-    .maybeSingle();
-
-  if (adminError) {
+async function sendExistingUserEmployeeEmail({
+  email,
+  fullName,
+}) {
+  if (!RESEND_API_KEY) {
     throw new Error(
-      `Could not verify administrator access: ${adminError.message}`
+      'RESEND_API_KEY is missing from the Netlify environment variables.'
     );
   }
 
-  if (!admin) {
-    const error = new Error(
-      'You do not have administrator access for this restaurant.'
-    );
-    error.statusCode = 403;
-    throw error;
-  }
+  const safeName = escapeHtml(fullName || 'there');
+  const employeeLoginUrl = `${APP_URL}/employee-login`;
 
-  if (String(admin.role || '').toLowerCase() !== 'admin') {
-    const error = new Error(
-      'Only an active administrator can invite employees.'
-    );
-    error.statusCode = 403;
-    throw error;
-  }
-
-  return user;
-}
-
-async function findAuthUserIdByEmail(email) {
-  const { data, error } = await supabase.rpc(
-    'get_auth_user_id_by_email',
+  const resendResponse = await fetch(
+    'https://api.resend.com/emails',
     {
-      lookup_email: email,
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: EMPLOYEE_EMAIL_FROM,
+        to: [email],
+        subject: `You have been added as a ${RESTAURANT_NAME} employee`,
+        html: `
+          <!doctype html>
+          <html>
+            <body
+              style="
+                margin:0;
+                padding:0;
+                background:#f5f5f5;
+                font-family:Arial,Helvetica,sans-serif;
+                color:#222222;
+              "
+            >
+              <div
+                style="
+                  max-width:600px;
+                  margin:0 auto;
+                  padding:32px 20px;
+                "
+              >
+                <div
+                  style="
+                    background:#ffffff;
+                    border-radius:14px;
+                    padding:32px;
+                    box-shadow:0 4px 14px rgba(0,0,0,0.08);
+                  "
+                >
+                  <h1
+                    style="
+                      margin:0 0 18px;
+                      font-size:26px;
+                      line-height:1.3;
+                    "
+                  >
+                    Employee access added
+                  </h1>
+
+                  <p
+                    style="
+                      margin:0 0 16px;
+                      font-size:16px;
+                      line-height:1.6;
+                    "
+                  >
+                    Hello ${safeName},
+                  </p>
+
+                  <p
+                    style="
+                      margin:0 0 16px;
+                      font-size:16px;
+                      line-height:1.6;
+                    "
+                  >
+                    You have been added as an employee at
+${escapeHtml(RESTAURANT_NAME)}.
+                  </p>
+
+                  <p
+                    style="
+                      margin:0 0 24px;
+                      font-size:16px;
+                      line-height:1.6;
+                    "
+                  >
+                    Your email already has a JD Righteous LLC-powered
+                    account, so you do not need to create another password.
+                    Sign in to the employee portal using your existing email
+                    address and password.
+                  </p>
+
+                  <a
+                    href="${employeeLoginUrl}"
+                    style="
+                      display:inline-block;
+                      padding:14px 22px;
+                      border-radius:8px;
+                      background:#111827;
+                      color:#ffffff;
+                      text-decoration:none;
+                      font-size:16px;
+                      font-weight:700;
+                    "
+                  >
+                    Employee Login
+                  </a>
+
+                  <p
+                    style="
+                      margin:24px 0 0;
+                      font-size:13px;
+                      line-height:1.5;
+                      color:#666666;
+                    "
+                  >
+                    Employee access is powered by JD Righteous LLC.
+                  </p>
+                </div>
+              </div>
+            </body>
+          </html>
+        `,
+      }),
     }
   );
 
-  if (error) {
+  const resendResult = await resendResponse.json();
+
+  if (!resendResponse.ok) {
     throw new Error(
-      `Could not check the existing authentication account: ${error.message}`
+      resendResult?.message ||
+        resendResult?.error ||
+        'Resend failed to send the employee email.'
     );
   }
 
-  return data || null;
-}
-
-async function findEmployeeMembership(authUserId) {
-  const { data, error } = await supabase
-    .from('employees')
-    .select(
-      'id, restaurant_id, auth_user_id, full_name, email, role, status, is_active'
-    )
-    .eq('restaurant_id', RESTAURANT_ID)
-    .eq('auth_user_id', authUserId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(
-      `Could not check employee membership: ${error.message}`
-    );
-  }
-
-  return data || null;
-}
-
-async function resolveAuthUser(email, fullName) {
-  let authUserId = await findAuthUserIdByEmail(email);
-
-  if (authUserId) {
-    return {
-      authUserId,
-      existingAccount: true,
-      invitationSent: false,
-    };
-  }
-
-  const redirectUrl = `${APP_URL.replace(/\/+$/, '')}/employee-login`;
-
-  const { data: inviteData, error: inviteError } =
-    await supabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo: redirectUrl,
-      data: {
-        full_name: fullName,
-        role: 'employee',
-        restaurant_id: RESTAURANT_ID,
-      },
-    });
-
-  if (!inviteError && inviteData?.user?.id) {
-    return {
-      authUserId: inviteData.user.id,
-      existingAccount: false,
-      invitationSent: true,
-    };
-  }
-
-  /*
-   * The account may have been created between the first lookup
-   * and the invitation request. Check again before returning an error.
-   */
-  authUserId = await findAuthUserIdByEmail(email);
-
-  if (authUserId) {
-    return {
-      authUserId,
-      existingAccount: true,
-      invitationSent: false,
-    };
-  }
-
-  throw new Error(
-    inviteError?.message ||
-      'Supabase could not create the employee invitation.'
-  );
+  return resendResult;
 }
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return jsonResponse(405, {
-      error: 'Method not allowed. Use POST.',
-    });
-  }
-
   try {
-    await requireRestaurantAdmin(event);
-
-    let requestBody;
-
-    try {
-      requestBody = JSON.parse(event.body || '{}');
-    } catch {
-      return jsonResponse(400, {
-        error: 'The employee invitation request is not valid JSON.',
+    if (event.httpMethod !== 'POST') {
+      return response(405, {
+        error: 'Method not allowed. Use POST.',
       });
     }
 
-    const normalizedEmail = String(requestBody.email || '')
-      .trim()
-      .toLowerCase();
+    if (
+  !SUPABASE_URL ||
+  !SERVICE_ROLE_KEY ||
+  !RESTAURANT_ID ||
+  !RESTAURANT_NAME ||
+  !APP_URL ||
+  !EMPLOYEE_EMAIL_FROM
+) {
+  return response(500, {
+    error: 'Required environment variables are missing.',
+  });
+}
 
-    const normalizedName = String(requestBody.fullName || '').trim();
+    const authorizationHeader =
+      event.headers.authorization ||
+      event.headers.Authorization ||
+      '';
 
-    if (!normalizedEmail) {
-      return jsonResponse(400, {
-        error: 'Missing employee email.',
-      });
-    }
+    const accessToken =
+      authorizationHeader.startsWith('Bearer ')
+        ? authorizationHeader.slice(7).trim()
+        : '';
 
-    if (!normalizedEmail.includes('@')) {
-      return jsonResponse(400, {
-        error: 'Please enter a valid employee email address.',
+    if (!accessToken) {
+      return response(401, {
+        error: 'Missing administrator access token.',
       });
     }
 
     const {
-      authUserId,
-      existingAccount,
-      invitationSent,
-    } = await resolveAuthUser(normalizedEmail, normalizedName);
+      data: { user: requestingUser },
+      error: requestingUserError,
+    } = await supabaseAdmin.auth.getUser(accessToken);
 
-    const existingMembership =
-      await findEmployeeMembership(authUserId);
-
-    if (existingMembership) {
-      return jsonResponse(409, {
+    if (requestingUserError || !requestingUser) {
+      return response(401, {
         error:
-          'This person already has employee access for this restaurant.',
+          'Your administrator session is invalid or expired.',
       });
     }
 
-    const { error: employeeError } = await supabase
-      .from('employees')
-      .insert([
-        {
-          restaurant_id: RESTAURANT_ID,
-          auth_user_id: authUserId,
-          full_name: normalizedName,
-          email: normalizedEmail,
-          role: 'employee',
-          status: existingAccount ? 'active' : 'invited',
-          is_active: true,
-        },
-      ]);
+    const {
+      data: administrator,
+      error: administratorError,
+    } = await supabaseAdmin
+      .from('admins')
+      .select('*')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('auth_user_id', requestingUser.id)
+      .maybeSingle();
 
-    if (employeeError) {
-      if (employeeError.code === '23505') {
-        return jsonResponse(409, {
-          error:
-            'This person already has employee access for this restaurant.',
-        });
+    if (administratorError) {
+      throw administratorError;
+    }
+
+    if (!administrator) {
+      return response(403, {
+        error:
+          'Only an active restaurant administrator can invite employees.',
+      });
+    }
+
+    let body;
+
+    try {
+      body = JSON.parse(event.body || '{}');
+    } catch {
+      return response(400, {
+        error: 'Invalid request body.',
+      });
+    }
+
+    const normalizedEmail =
+      typeof body.email === 'string'
+        ? body.email.trim().toLowerCase()
+        : '';
+
+    const normalizedFullName =
+      typeof body.fullName === 'string'
+        ? body.fullName.trim()
+        : '';
+
+    if (!normalizedEmail) {
+      return response(400, {
+        error: 'Missing employee email.',
+      });
+    }
+
+    let authUser =
+      await findExistingAuthUser(normalizedEmail);
+
+    const isExistingUser = Boolean(authUser);
+
+    if (!authUser) {
+      const { data: inviteData, error: inviteError } =
+        await supabaseAdmin.auth.admin.inviteUserByEmail(
+          normalizedEmail,
+          {
+            redirectTo: `${APP_URL}/employee-login`,
+            data: {
+              full_name: normalizedFullName,
+              role: 'employee',
+              restaurant_id: RESTAURANT_ID,
+            },
+          }
+        );
+
+      if (inviteError) {
+        throw inviteError;
       }
 
+      authUser = inviteData?.user || null;
+    }
+
+    const authUserId = authUser?.id;
+
+    if (!authUserId) {
       throw new Error(
-        `Could not create employee membership: ${employeeError.message}`
+        'Unable to determine the employee Auth user ID.'
       );
     }
 
-    const message = existingAccount
-      ? 'Employee access added. This person already has JD Righteous LLC login credentials and should sign in using their existing email and password.'
-      : 'Employee invitation sent successfully. They should check their email to finish setting up access.';
+    const employeeName =
+      normalizedFullName ||
+      authUser.user_metadata?.full_name ||
+      authUser.user_metadata?.name ||
+      normalizedEmail.split('@')[0];
 
-    return jsonResponse(200, {
+    const { data: employee, error: employeeError } =
+      await supabaseAdmin
+        .from('employees')
+        .upsert(
+          {
+            restaurant_id: RESTAURANT_ID,
+            auth_user_id: authUserId,
+            full_name: employeeName,
+            email: normalizedEmail,
+            role: 'employee',
+            status: isExistingUser
+              ? 'active'
+              : 'invited',
+            is_active: true,
+          },
+          {
+            onConflict:
+              'restaurant_id,auth_user_id',
+          }
+        )
+        .select()
+        .single();
+
+    if (employeeError) {
+      throw employeeError;
+    }
+
+    let notificationEmailSent = false;
+
+    if (isExistingUser) {
+      await sendExistingUserEmployeeEmail({
+        email: normalizedEmail,
+        fullName: employeeName,
+      });
+
+      notificationEmailSent = true;
+    }
+
+    return response(200, {
       success: true,
-      authUserId,
-      existingAccount,
-      invitationSent,
-      restaurantId: RESTAURANT_ID,
-      message,
+      existingUser: isExistingUser,
+      notificationEmailSent,
+      employee,
+      message: isExistingUser
+        ? 'Existing account added as an employee and notification email sent.'
+        : 'Employee invitation sent.',
     });
   } catch (error) {
-    console.error('Employee invitation failed:', error);
+    console.error('Invite employee error:', error);
 
-    return jsonResponse(error?.statusCode || 500, {
+    return response(500, {
       error:
-        error?.message || 'Failed to invite employee.',
+        error?.message ||
+        'Failed to invite employee.',
     });
   }
 };
