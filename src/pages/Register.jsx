@@ -9,7 +9,7 @@ export default function Register() {
       style={{ background: "#080604" }}
     >
       {/* Top bar links */}
-      <div className="flex justify-between px-5 pt-4 absolute top-0 left-0 right-0 z-20">
+      <div className="flex justify-between px-5 absolute top-[max(env(safe-area-inset-top),32px)] left-0 right-0 z-20">
         <Link
           to="/employee-login"
           className="text-xs font-semibold tracking-widest uppercase px-4 py-2 rounded-full border border-amber-500/40 text-amber-400/80 hover:text-amber-300 hover:border-amber-400 transition-all"

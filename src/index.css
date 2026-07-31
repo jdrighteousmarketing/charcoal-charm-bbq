@@ -97,6 +97,10 @@
 }
 
 /* Safe area for mobile devices */
+.safe-area-top {
+  padding-top: max(env(safe-area-inset-top), 32px);
+}
+
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }

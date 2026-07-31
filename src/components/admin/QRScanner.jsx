@@ -190,7 +190,7 @@ export default function QRScanner({ onScan, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black z-[9999] flex flex-col items-center justify-center px-4">
-      <div className="absolute top-4 right-4 flex items-center gap-2">
+      <div className="absolute top-[max(env(safe-area-inset-top),32px)] right-4 flex items-center gap-2">
         <Button
           variant="ghost"
           size="icon"

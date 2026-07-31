@@ -21,11 +21,14 @@ export default function NativeHeader({
   };
 
   return (
-    <div className={cn(
+  <div
+    className={cn(
       'sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-border',
-      'h-14 flex items-center justify-between px-4',
+      'pt-[max(env(safe-area-inset-top),32px)]',
       className
-    )}>
+    )}
+  >
+    <div className="h-14 flex items-center justify-between px-4">
       <div className="flex items-center gap-2 w-12">
         {backTo && (
           <Button
@@ -37,6 +40,7 @@ export default function NativeHeader({
             <ChevronLeft className="w-6 h-6" />
           </Button>
         )}
+
         {onClose && (
           <Button
             variant="ghost"
@@ -57,5 +61,6 @@ export default function NativeHeader({
         {actions}
       </div>
     </div>
-  );
+  </div>
+);
 }

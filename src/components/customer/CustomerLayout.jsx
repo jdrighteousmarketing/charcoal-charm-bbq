@@ -6,7 +6,7 @@ import PageTransition from '@/components/PageTransition';
 export default function CustomerLayout() {
   return (
     <div className="min-h-screen bg-background">
-      <div className="fixed top-4 right-4 z-50">
+      <div className="fixed top-[max(env(safe-area-inset-top),32px)] right-4 z-50">
         <CartSheet />
       </div>
       <div className="max-w-lg mx-auto pb-24">

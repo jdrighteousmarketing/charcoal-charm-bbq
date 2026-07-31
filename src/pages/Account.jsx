@@ -457,7 +457,7 @@ const updatedProfile = {
   }
 
   return (
-    <div className="pb-4">
+    <div className="pb-32">
       {editing ? (
         <NativeHeader title="Edit Profile" backTo="/account" />
       ) : (

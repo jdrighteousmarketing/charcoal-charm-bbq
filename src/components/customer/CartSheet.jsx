@@ -1095,19 +1095,33 @@ const handleRemoveDeal = async (deal) => {
           }
         }}
       >
-        <SheetTrigger asChild>
-          <Button variant="outline" size="icon" className="relative">
-            <ShoppingCart className="w-5 h-5" />
+        <div className="relative flex items-center justify-center">
+  <SheetTrigger asChild>
+    <button
+      type="button"
+      aria-label="Open cart"
+      className="absolute h-14 w-14 z-10 bg-transparent touch-manipulation"
+    />
+  </SheetTrigger>
 
-            {displayCount > 0 && (
-              <Badge className="absolute -top-2 -right-2 h-5 min-w-5 flex items-center justify-center p-0 px-1 text-xs">
-                {displayCount}
-              </Badge>
-            )}
-          </Button>
-        </SheetTrigger>
+  <Button
+    variant="outline"
+    size="icon"
+    className="relative pointer-events-none"
+    tabIndex={-1}
+    aria-hidden="true"
+  >
+    <ShoppingCart className="w-5 h-5" />
 
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+    {displayCount > 0 && (
+      <Badge className="absolute -top-2 -right-2 h-5 min-w-5 flex items-center justify-center p-0 px-1 text-xs">
+        {displayCount}
+      </Badge>
+    )}
+  </Button>
+</div>
+
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto safe-area-top">
           <SheetHeader>
             <SheetTitle>Your Cart</SheetTitle>
             <SheetDescription>
