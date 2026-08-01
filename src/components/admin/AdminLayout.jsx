@@ -195,29 +195,32 @@ export default function AdminLayout() {
     <div className="min-h-screen bg-background">
       {/* Mobile header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border pt-[max(env(safe-area-inset-top),32px)]">
-  <div className="h-16 px-4 flex items-center justify-between"></div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setSidebarOpen(true)}
-        >
-          <Menu className="w-5 h-5" />
-        </Button>
-
-        <span className="font-display font-bold text-sm">
-          {hasFullAccess
-            ? 'Owner Admin'
-            : 'Employee Dashboard'}
-        </span>
-
-        {!isEmployee && (
-          <Link
-            to="/"
-            className="text-sm text-primary font-semibold px-3 py-2 rounded-lg hover:bg-primary/10 transition-colors"
+        <div className="h-16 px-4 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSidebarOpen(true)}
           >
-            View App
-          </Link>
-        )}
+            <Menu className="w-5 h-5" />
+          </Button>
+
+          <span className="font-display font-bold text-2xl leading-none">
+  {hasFullAccess
+    ? 'Owner Admin'
+    : 'Employee Dashboard'}
+</span>
+
+          {!isEmployee ? (
+            <Link
+              to="/"
+              className="text-sm text-primary font-semibold px-3 py-2 rounded-lg hover:bg-primary/10 transition-colors"
+            >
+              View App
+            </Link>
+          ) : (
+            <div className="w-10" />
+          )}
+        </div>
       </div>
 
       {/* Mobile sidebar backdrop */}

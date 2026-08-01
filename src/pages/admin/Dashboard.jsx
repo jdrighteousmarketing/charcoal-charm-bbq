@@ -366,7 +366,12 @@ export default function Dashboard() {
   const topSellingItem = data.topSellingItem || { name: 'No sales yet', quantity: 0 };
 
   return (
-    <div className="space-y-8">
+  <div
+    className="space-y-8"
+    style={{
+      paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))',
+    }}
+  >
       <div>
         <p className="text-xs font-semibold tracking-widest uppercase text-primary/70 mb-1">
           Welcome back

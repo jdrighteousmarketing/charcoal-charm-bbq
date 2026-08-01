@@ -264,9 +264,6 @@ export default function QRScanner({ onScan, onClose }) {
         )}
       </div>
 
-      <p className="text-white/50 text-xs text-center mt-4 max-w-xs">
-        On iPhone, use Safari or Chrome with camera permission enabled.
-      </p>
     </div>
   );
 }
